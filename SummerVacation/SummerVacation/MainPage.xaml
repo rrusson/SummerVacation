@@ -1,0 +1,106 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="SummerVacation.MainPage"
+             BackgroundColor="{StaticResource AppBackgroundColor}">
+
+    <Grid RowDefinitions="Auto,*,Auto,Auto"
+          ColumnDefinitions="*"
+          Padding="{StaticResource PageMargin}">
+        
+        <!-- Header with title -->
+        <Label Grid.Row="0"
+               Text="Vacation Story Creator"
+               SemanticProperties.HeadingLevel="Level1"
+               FontSize="24"
+               TextColor="{StaticResource NavigationBarColor}"
+               HorizontalOptions="Center"
+               Margin="0,0,0,10"/>
+
+        <!-- Main content area with image -->
+        <Border Grid.Row="1"
+                Stroke="{AppThemeBinding Light={StaticResource Gray300}, Dark={StaticResource Gray600}}"
+                StrokeThickness="1"
+                Margin="0,0,0,10">
+            <Grid>
+                <Image x:Name="PhotoDisplay"
+                       Aspect="AspectFit"
+                       SemanticProperties.Description="Current photo display"
+                       HorizontalOptions="Fill"
+                       VerticalOptions="Fill"/>
+                
+                <!-- Placeholder text when no image is loaded -->
+                <Label x:Name="NoPhotoLabel"
+                       Text="Select a photo directory to begin"
+                       HorizontalOptions="Center"
+                       VerticalOptions="Center"
+                       TextColor="{StaticResource Gray300}"
+                       IsVisible="True"/>
+            </Grid>
+        </Border>
+
+        <!-- Controls section -->
+        <VerticalStackLayout Grid.Row="2" Spacing="10">
+            <!-- Directory selection -->
+            <Button x:Name="SelectDirectoryButton"
+                    Text="Select Photo Directory"
+                    SemanticProperties.Hint="Choose directory containing photos"
+                    Clicked="OnSelectDirectoryClicked"
+                    HorizontalOptions="Center"
+                    BackgroundColor="{StaticResource NavigationBarColor}"
+                    TextColor="{StaticResource NavigationBarTextColor}"/>
+            
+            <!-- Navigation buttons -->
+            <HorizontalStackLayout HorizontalOptions="Center" Spacing="20">
+                <Button x:Name="PreviousButton"
+                        Text="Previous"
+                        SemanticProperties.Hint="Go to previous photo"
+                        Clicked="OnPreviousClicked"
+                        HorizontalOptions="Center"
+                        BackgroundColor="{StaticResource NavigationBarColor}"
+                        TextColor="{StaticResource NavigationBarTextColor}"/>
+                
+                <Button x:Name="NextButton"
+                        Text="Next"
+                        SemanticProperties.Hint="Go to next photo"
+                        Clicked="OnNextClicked"
+                        HorizontalOptions="Center"
+                        BackgroundColor="{StaticResource NavigationBarColor}"
+                        TextColor="{StaticResource NavigationBarTextColor}"/>
+            </HorizontalStackLayout>
+
+            <!-- Recording controls -->
+            <HorizontalStackLayout HorizontalOptions="Center" Spacing="20">
+                <Button x:Name="RecordButton"
+                        Text="Record Narration"
+                        SemanticProperties.Hint="Record audio narration for current photo"
+                        Clicked="OnRecordClicked"
+                        BackgroundColor="Red"
+                        TextColor="White"
+                        HorizontalOptions="Center" />
+                
+                <Button x:Name="PlayButton"
+                        Text="Play Narration"
+                        SemanticProperties.Hint="Play recorded narration for current photo"
+                        Clicked="OnPlayClicked"
+                        BackgroundColor="{StaticResource NavigationBarColor}"
+                        TextColor="{StaticResource NavigationBarTextColor}"
+                        HorizontalOptions="Center" />
+            </HorizontalStackLayout>
+        </VerticalStackLayout>
+
+        <!-- Status and directory path -->
+        <VerticalStackLayout Grid.Row="3" Spacing="5" Margin="0,10,0,0">
+            <Label x:Name="StatusLabel"
+                   Text="Ready"
+                   HorizontalOptions="Center"
+                   TextColor="{StaticResource NormalTextColor}"/>
+            <Label x:Name="DirectoryPathLabel"
+                   Text="No directory selected"
+                   HorizontalOptions="Center"
+                   FontSize="12"
+                   TextColor="{StaticResource Gray300}"/>
+        </VerticalStackLayout>
+    </Grid>
+
+</ContentPage>

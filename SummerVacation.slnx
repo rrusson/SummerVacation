@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="SummerVacation/SummerVacation.Shared/SummerVacation.Shared.csproj" />
+  <Project Path="SummerVacation/SummerVacation.Web/SummerVacation.Web.csproj" />
+  <Project Path="SummerVacation/SummerVacation/SummerVacation.csproj" />
+</Solution>
