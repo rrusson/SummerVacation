@@ -1,14 +1,10 @@
 ﻿using System.Collections.ObjectModel;
-
 using CommunityToolkit.Maui;
 using CommunityToolkit.Maui.Storage;
-
 using Microsoft.Extensions.Logging;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Controls.PlatformConfiguration;
-
 using Plugin.Maui.Audio;
-
 using SummerVacation.Services;
 using SummerVacation.Shared.Services;
 
@@ -42,7 +38,10 @@ namespace SummerVacation
                     var storageStatus = await Permissions.RequestAsync<Permissions.StorageRead>();
                     if (storageStatus != PermissionStatus.Granted)
                     {
-                        await DisplayAlertAsync("Permission Required", "Storage permission is required to access photos.", "OK");
+                        await DisplayAlertAsync(
+                            "Permission Required",
+                            "Storage permission is required to access photos.",
+                            "OK");
                         return;
                     }
 
@@ -51,18 +50,21 @@ namespace SummerVacation
                         var photoStatus = await Permissions.RequestAsync<Permissions.Photos>();
                         if (photoStatus != PermissionStatus.Granted)
                         {
-                            await DisplayAlertAsync("Permission Required", "Photos permission is required to access images.", "OK");
+                            await DisplayAlertAsync(
+                                "Permission Required",
+                                "Photos permission is required to access images.",
+                                "OK");
                             return;
                         }
                     }
                 }
 
-    //            var result = await FolderPicker.PickAsync(initialPath: DeviceInfo.Platform == DevicePlatform.Android
-    //? Android.OS.Environment.DirectoryPictures.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryPictures).AbsolutePath
-    //: Environment.GetFolderPath(Environment.SpecialFolder.MyPictures));
+                FolderPickerResult result = await FolderPicker.PickAsync(Convert.ToString(DeviceInfo.Platform == DevicePlatform.Android
+                    ? FolderPicker.PickAsync(initialPath: Environment.GetFolderPath(Environment.SpecialFolder.MyPictures))
+                    : Environment.GetFolderPath(Environment.SpecialFolder.MyPictures)));
 
                 // If platform is Android, start at Pictures directory
-                var result = await FolderPicker.PickAsync(initialPath: Environment.GetFolderPath(Environment.SpecialFolder.MyPictures));
+                //FolderPickerResult resultX = await FolderPicker.PickAsync(initialPath: Environment.GetFolderPath(Environment.SpecialFolder.MyPictures));
 
                 if (result.IsSuccessful && !string.IsNullOrEmpty(result.Folder?.Path))
                 {
@@ -94,7 +96,7 @@ namespace SummerVacation
             }
             catch (Exception ex)
             {
-                await DisplayAlert("Error", "Failed to access the selected directory: " + ex.Message, "OK");
+                await DisplayAlertAsync("Error", "Failed to access the selected directory: " + ex.Message, "OK");
                 StatusLabel.Text = "Directory selection failed";
             }
         }
@@ -108,7 +110,7 @@ namespace SummerVacation
                     // Create a FileImageSource instead of using a stream
                     PhotoDisplay.Source = ImageSource.FromFile(photoFiles[currentPhotoIndex]);
                     NoPhotoLabel.IsVisible = false;
-                    
+
                     // Update status with current photo info
                     var fileName = Path.GetFileName(photoFiles[currentPhotoIndex]);
                     StatusLabel.Text = $"Photo {currentPhotoIndex + 1} of {photoFiles.Count}: {fileName}";
@@ -152,15 +154,15 @@ namespace SummerVacation
         {
             if (currentPhotoIndex < 0 || currentPhotoIndex >= photoFiles.Count)
                 return string.Empty;
-                
+
             // Always save in the app's private directory under PhotoNarration folder
             var appDataDir = FileSystem.Current.AppDataDirectory;
             var narrationDir = Path.Combine(appDataDir, "PhotoNarration");
-            
+
             // Use the photo's filename (without path) as the base for the narration filename
             var photoFileName = Path.GetFileName(photoFiles[currentPhotoIndex]);
             var narrationFileName = Path.ChangeExtension(photoFileName, ".mp3");
-            
+
             return Path.Combine(narrationDir, narrationFileName);
         }
 
@@ -168,74 +170,93 @@ namespace SummerVacation
         {
             if (_isRecording)
             {
-                // Stop recording
-                if (_audioRecorder != null)
+                await SaveRecordingAsync().ConfigureAwait(true);
+                UpdateControlStates();
+                return;
+            }
+
+            // Start recording...
+            try
+            {
+                // Request microphone permission
+                var status = await Permissions.RequestAsync<Permissions.Microphone>();
+                if (status != PermissionStatus.Granted)
                 {
-                    StatusLabel.Text = "Saving recording...";
-                    var audioFile = await _audioRecorder.StopAsync();
-                    
-                    try
-                    {
-                        // Save the recording with the same name as the photo but with .mp3 extension
-                        var narrationPath = GetNarrationPath();
-                        if (!string.IsNullOrEmpty(narrationPath))
-                        {
-                            // Ensure the directory exists
-                            var directory = Path.GetDirectoryName(narrationPath);
-                            if (!string.IsNullOrEmpty(directory))
-                            {
-                                Directory.CreateDirectory(directory);
-                            }
-
-                            using (var audioStream = audioFile.GetAudioStream())
-                            using (var fileStream = File.Create(narrationPath))
-                            {
-                                await audioStream.CopyToAsync(fileStream);
-                            }
-
-                            StatusLabel.Text = "Recording saved";
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        await DisplayAlertAsync("Error", $"Failed to save recording: {ex.Message}\nPath: {GetNarrationPath()}", "OK");
-                        StatusLabel.Text = "Failed to save recording";
-                    }
+                    await DisplayAlertAsync(
+                        "Permission Required",
+                        "Microphone permission is required to record audio.",
+                        "OK");
+                    return;
                 }
-                
-                RecordButton.Text = "Record Narration";
+
+                _audioRecorder = _audioManager.CreateRecorder();
+
+                await _audioRecorder.StartAsync();
+                StatusLabel.Text = "Recording...";
+                RecordButton.Text = "Stop Recording";
+                _isRecording = true;
+            }
+            catch (Exception ex)
+            {
+                await DisplayAlertAsync("Error", "Failed to start recording: " + ex.Message, "OK");
+                StatusLabel.Text = "Failed to start recording";
                 _isRecording = false;
             }
-            else
+
+            UpdateControlStates();
+        }
+
+        private async Task SaveRecordingAsync()
+        {
+            if (_audioRecorder == null)
             {
-                try
+                return;
+            }
+
+            StatusLabel.Text = "Saving recording...";
+
+            try
+            {
+                IAudioSource? audioFile = await _audioRecorder.StopAsync().ConfigureAwait(true);
+                _audioRecorder = null;
+
+                // Save the recording with the same name as the photo but with .mp3 extension
+                var narrationPath = GetNarrationPath();
+                if (!string.IsNullOrEmpty(narrationPath))
                 {
-                    // Request microphone permission
-                    var status = await Permissions.RequestAsync<Permissions.Microphone>();
-                    if (status != PermissionStatus.Granted)
+                    // Ensure the directory exists
+                    var directory = Path.GetDirectoryName(narrationPath);
+                    if (!string.IsNullOrEmpty(directory))
                     {
-                        await DisplayAlertAsync("Permission Required", 
-                            "Microphone permission is required to record audio.", "OK");
-                        return;
+                        Directory.CreateDirectory(directory);
                     }
 
-                    // Start new recording
-                    _audioRecorder = _audioManager.CreateRecorder();
-                    
-                    await _audioRecorder.StartAsync();
-                    StatusLabel.Text = "Recording...";
-                    RecordButton.Text = "Stop Recording";
-                    _isRecording = true;
-                }
-                catch (Exception ex)
-                {
-                    await DisplayAlertAsync("Error", "Failed to start recording: " + ex.Message, "OK");
-                    StatusLabel.Text = "Failed to start recording";
-                    _isRecording = false;
+                    // Check if file already exists and delete it
+                    if (File.Exists(narrationPath))
+                    {
+                        File.Delete(narrationPath);
+                    }
+
+                    using (var audioStream = audioFile.GetAudioStream())
+                    using (var fileStream = File.Create(narrationPath))
+                    {
+                        await audioStream.CopyToAsync(fileStream);
+                    }
+
+                    StatusLabel.Text = "Recording saved";
                 }
             }
-            
-            UpdateControlStates();
+            catch (Exception ex)
+            {
+                await DisplayAlertAsync(
+                    "Error",
+                    $"Failed to save recording: {ex.Message}\nPath: {GetNarrationPath()}",
+                    "OK");
+                StatusLabel.Text = "Failed to save recording";
+            }
+
+            RecordButton.Text = "Record Narration";
+            _isRecording = false;
         }
 
         private async void OnPlayClicked(object sender, EventArgs e)
@@ -291,7 +312,7 @@ namespace SummerVacation
                 StatusLabel.Text = "Playback failed";
                 _audioPlayer = null;
             }
-            
+
             UpdateControlStates();
         }
 
@@ -301,11 +322,11 @@ namespace SummerVacation
             bool hasPhotos = photoFiles.Any();
             bool isRecording = _isRecording;
             bool isPlaying = _audioPlayer?.IsPlaying == true;
-            
+
             PreviousButton.IsEnabled = hasPhotos && currentPhotoIndex > 0 && !isRecording && !isPlaying;
             NextButton.IsEnabled = hasPhotos && currentPhotoIndex < photoFiles.Count - 1 && !isRecording && !isPlaying;
             RecordButton.IsEnabled = hasPhotos && !isPlaying;
-            PlayButton.IsEnabled = hasPhotos && !isRecording && File.Exists(GetNarrationPath());
+            PlayButton.IsEnabled = hasPhotos && !isRecording; //&& File.Exists(GetNarrationPath());
         }
     }
 }

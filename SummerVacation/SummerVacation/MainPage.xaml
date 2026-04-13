@@ -10,7 +10,7 @@
         
         <!-- Header with title -->
         <Label Grid.Row="0"
-               Text="Vacation Story Creator"
+               Text="Photo Narrator"
                SemanticProperties.HeadingLevel="Level1"
                FontSize="24"
                TextColor="{StaticResource NavigationBarColor}"

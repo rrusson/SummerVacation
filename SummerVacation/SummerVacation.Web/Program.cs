@@ -2,7 +2,7 @@ using SummerVacation.Shared.Services;
 using SummerVacation.Web.Components;
 using SummerVacation.Web.Services;
 
-namespace SummerVacation
+namespace SummerVacation.Web
 {
     public class Program
     {
