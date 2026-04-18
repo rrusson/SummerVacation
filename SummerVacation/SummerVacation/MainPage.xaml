@@ -75,7 +75,7 @@
                         Text="Record Narration"
                         SemanticProperties.Hint="Record audio narration for current photo"
                         Clicked="OnRecordClicked"
-                        BackgroundColor="Red"
+                        BackgroundColor="Green"
                         TextColor="White"
                         HorizontalOptions="Center" />
                 
