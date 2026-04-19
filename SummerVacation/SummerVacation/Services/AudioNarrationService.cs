@@ -29,7 +29,9 @@ public sealed class AudioNarrationService : IDisposable
 	{
 		var status = await Permissions.RequestAsync<Permissions.Microphone>();
 		if (status != PermissionStatus.Granted)
+		{
 			throw new UnauthorizedAccessException("Microphone permission is required to record audio.");
+		}
 
 		StopPlayback();
 
@@ -44,7 +46,9 @@ public sealed class AudioNarrationService : IDisposable
 	public async Task StopAndSaveAsync(string destinationPath)
 	{
 		if (_audioRecorder is null)
+		{
 			return;
+		}
 
 		var audioSource = await _audioRecorder.StopAsync();
 		_audioRecorder = null;
@@ -52,7 +56,9 @@ public sealed class AudioNarrationService : IDisposable
 
 		var directory = Path.GetDirectoryName(destinationPath);
 		if (!string.IsNullOrEmpty(directory))
+		{
 			Directory.CreateDirectory(directory);
+		}
 
 		if (File.Exists(destinationPath))
 		{
@@ -72,7 +78,9 @@ public sealed class AudioNarrationService : IDisposable
 	public async Task PlayAsync(string narrationPath)
 	{
 		if (!File.Exists(narrationPath))
+		{
 			throw new FileNotFoundException("Narration file not found.", narrationPath);
+		}
 
 		// Read into memory so the file is not locked during playback.
 		var audioBytes = await File.ReadAllBytesAsync(narrationPath);
@@ -85,13 +93,17 @@ public sealed class AudioNarrationService : IDisposable
 	public void StopPlayback()
 	{
 		if (_audioPlayer is null)
+		{
 			return;
+		}
 
 		var player = _audioPlayer;
 		_audioPlayer = null;
 
 		if (player.IsPlaying)
+		{
 			player.Stop();
+		}
 
 		player.PlaybackEnded -= OnPlayerPlaybackEnded;
 		player.Dispose();

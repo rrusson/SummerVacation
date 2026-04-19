@@ -32,7 +32,9 @@ public sealed class PhotoLibrary
 	{
 		var savedDirectory = Preferences.Default.Get(LastDirectoryKey, string.Empty);
 		if (string.IsNullOrEmpty(savedDirectory) || !Directory.Exists(savedDirectory))
+		{
 			return false;
+		}
 
 		LoadPhotosFromDirectory(savedDirectory);
 		return HasPhotos;
@@ -52,7 +54,9 @@ public sealed class PhotoLibrary
 		var result = await FolderPicker.PickAsync(initialPath, cancellationToken);
 
 		if (!result.IsSuccessful || string.IsNullOrEmpty(result.Folder?.Path))
+		{
 			return false;
+		}
 
 		Preferences.Default.Set(LastDirectoryKey, result.Folder.Path);
 		LoadPhotosFromDirectory(result.Folder.Path);
@@ -63,7 +67,9 @@ public sealed class PhotoLibrary
 	public bool MovePrevious()
 	{
 		if (CurrentPhotoIndex <= 0)
+		{
 			return false;
+		}
 
 		CurrentPhotoIndex--;
 		return true;
@@ -73,7 +79,9 @@ public sealed class PhotoLibrary
 	public bool MoveNext()
 	{
 		if (CurrentPhotoIndex >= _photoFiles.Count - 1)
+		{
 			return false;
+		}
 
 		CurrentPhotoIndex++;
 		return true;
@@ -87,12 +95,16 @@ public sealed class PhotoLibrary
 	{
 		var photoPath = CurrentPhotoPath;
 		if (photoPath is null)
+		{
 			return string.Empty;
+		}
 
 		var narrationFileName = Path.ChangeExtension(Path.GetFileName(photoPath), ".mp3");
 
 		if (CanWriteToPhotoDirectory)
+		{
 			return Path.Combine(CurrentDirectory!, narrationFileName);
+		}
 
 		// On Android/iOS write access to arbitrary directories is restricted — use app-private storage.
 		var narrationDir = Path.Combine(FileSystem.Current.AppDataDirectory, "PhotoNarration");
