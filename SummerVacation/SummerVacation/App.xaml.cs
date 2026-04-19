@@ -1,21 +1,19 @@
-﻿using Plugin.Maui.Audio;
-
-namespace SummerVacation
+﻿namespace SummerVacation
 {
-    public partial class App : Application
-    {
-        private readonly IAudioManager _audioManager;
+	public partial class App : Application
+	{
+		private readonly IServiceProvider _serviceProvider;
 
-        public App()
-        {
-            InitializeComponent();
-            // TODO: Replace with actual IAudioManager implementation
-            _audioManager = new AudioManager(); // You must provide a valid AudioManager class
-        }
+		public App(IServiceProvider serviceProvider)
+		{
+			InitializeComponent();
+			_serviceProvider = serviceProvider;
+		}
 
-        protected override Window CreateWindow(IActivationState? activationState)
-        {
-            return new Window(new MainPage(_audioManager)) { Title = "SummerVacation" };
-        }
-    }
+		protected override Window CreateWindow(IActivationState? activationState)
+		{
+			var mainPage = _serviceProvider.GetRequiredService<MainPage>();
+			return new Window(mainPage) { Title = "SummerVacation" };
+		}
+	}
 }
