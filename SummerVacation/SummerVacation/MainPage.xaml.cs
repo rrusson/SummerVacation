@@ -1,332 +1,344 @@
-﻿using System.Collections.ObjectModel;
-using CommunityToolkit.Maui;
-using CommunityToolkit.Maui.Storage;
-using Microsoft.Extensions.Logging;
-using Microsoft.Maui.Controls;
-using Microsoft.Maui.Controls.PlatformConfiguration;
-using Plugin.Maui.Audio;
-using SummerVacation.Services;
-using SummerVacation.Shared.Services;
+﻿using SummerVacation.Services;
 
 namespace SummerVacation
 {
-    public partial class MainPage : ContentPage
-    {
-        private readonly IAudioManager _audioManager;
-        private IAudioRecorder? _audioRecorder;
-        private IAudioPlayer? _audioPlayer;
-        private bool _isRecording;
+	public partial class MainPage : ContentPage
+	{
+		private const string Error = "Error";
 
-        private string? currentDirectory;
-        private List<string> photoFiles = new();
-        private int currentPhotoIndex = -1;
+		private readonly PhotoLibrary _photoLibrary;
+		private readonly AudioNarrationService _narrationService;
+		private readonly ISpeechToTextService _speechToTextService;
 
-        public MainPage(IAudioManager audioManager)
-        {
-            InitializeComponent();
-            _audioManager = audioManager;
-            UpdateControlStates();
-        }
+		public MainPage(PhotoLibrary photoLibrary, AudioNarrationService narrationService, ISpeechToTextService speechToTextService)
+		{
+			InitializeComponent();
+			_photoLibrary = photoLibrary;
+			_narrationService = narrationService;
+			_speechToTextService = speechToTextService;
+			_narrationService.PlaybackEnded += OnPlaybackEnded;
+			UpdateControlStates();
+		}
 
-        private async void OnSelectDirectoryClicked(object sender, EventArgs e)
-        {
-            try
-            {
-                // Request storage permissions for Android
-                if (DeviceInfo.Platform == DevicePlatform.Android)
-                {
-                    var storageStatus = await Permissions.RequestAsync<Permissions.StorageRead>();
-                    if (storageStatus != PermissionStatus.Granted)
-                    {
-                        await DisplayAlertAsync(
-                            "Permission Required",
-                            "Storage permission is required to access photos.",
-                            "OK");
-                        return;
-                    }
+		protected override async void OnAppearing()
+		{
+			base.OnAppearing();
 
-                    if (OperatingSystem.IsAndroidVersionAtLeast(33))
-                    {
-                        var photoStatus = await Permissions.RequestAsync<Permissions.Photos>();
-                        if (photoStatus != PermissionStatus.Granted)
-                        {
-                            await DisplayAlertAsync(
-                                "Permission Required",
-                                "Photos permission is required to access images.",
-                                "OK");
-                            return;
-                        }
-                    }
-                }
+			StatusLabel.Text = "Loading photos...";
+			if (!_photoLibrary.TryRestoreSavedDirectory())
+			{
+				StatusLabel.Text = "No photos found in saved directory";
+				UpdateControlStates();
+				return;
+			}
 
-                FolderPickerResult result = await FolderPicker.PickAsync(Convert.ToString(DeviceInfo.Platform == DevicePlatform.Android
-                    ? FolderPicker.PickAsync(initialPath: Environment.GetFolderPath(Environment.SpecialFolder.MyPictures))
-                    : Environment.GetFolderPath(Environment.SpecialFolder.MyPictures)));
+			DirectoryPathLabel.Text = _photoLibrary.CurrentDirectory;
+			await LoadCurrentPhotoAsync();
+			UpdateControlStates();
+		}
 
-                // If platform is Android, start at Pictures directory
-                //FolderPickerResult resultX = await FolderPicker.PickAsync(initialPath: Environment.GetFolderPath(Environment.SpecialFolder.MyPictures));
+		private async void OnSelectDirectoryClicked(object sender, EventArgs e)
+		{
+			try
+			{
+				if (!await HasStoragePermissionAsync())
+				{
+					StatusLabel.Text = "Permission to access photos is required.";
+					return;
+				}
 
-                if (result.IsSuccessful && !string.IsNullOrEmpty(result.Folder?.Path))
-                {
-                    currentDirectory = result.Folder.Path;
-                    DirectoryPathLabel.Text = currentDirectory;
-                    StatusLabel.Text = "Loading photos...";
+				StatusLabel.Text = "Loading photos...";
+				bool picked = await _photoLibrary.PickDirectoryAsync();
 
-                    // Get all jpg files in the directory and sort them by name
-                    photoFiles = Directory.GetFiles(currentDirectory, "*.jpg", SearchOption.TopDirectoryOnly)
-                        .Concat(Directory.GetFiles(currentDirectory, "*.jpeg", SearchOption.TopDirectoryOnly))
-                        .OrderBy(f => f)
-                        .ToList();
+				if (!picked)
+				{
+					return;
+				}
 
-                    if (photoFiles.Any())
-                    {
-                        currentPhotoIndex = 0;
-                        await LoadCurrentPhoto();
-                    }
-                    else
-                    {
-                        StatusLabel.Text = "No photos found in selected directory";
-                        NoPhotoLabel.IsVisible = true;
-                        PhotoDisplay.Source = null;
-                        currentPhotoIndex = -1;
-                    }
+				DirectoryPathLabel.Text = _photoLibrary.CurrentDirectory;
 
-                    UpdateControlStates();
-                }
-            }
-            catch (Exception ex)
-            {
-                await DisplayAlertAsync("Error", "Failed to access the selected directory: " + ex.Message, "OK");
-                StatusLabel.Text = "Directory selection failed";
-            }
-        }
+				if (_photoLibrary.HasPhotos)
+				{
+					await LoadCurrentPhotoAsync();
+				}
+				else
+				{
+					StatusLabel.Text = "No photos found in selected directory";
+					NoPhotoLabel.IsVisible = true;
+					PhotoDisplay.Source = null;
+				}
 
-        private async Task LoadCurrentPhoto()
-        {
-            if (currentPhotoIndex >= 0 && currentPhotoIndex < photoFiles.Count)
-            {
-                try
-                {
-                    // Create a FileImageSource instead of using a stream
-                    PhotoDisplay.Source = ImageSource.FromFile(photoFiles[currentPhotoIndex]);
-                    NoPhotoLabel.IsVisible = false;
+				UpdateControlStates();
+			}
+			catch (Exception ex)
+			{
+				await DisplayAlertAsync(Error, "Failed to access the selected directory: " + ex.Message, "OK");
+				StatusLabel.Text = "Directory selection failed";
+			}
+		}
 
-                    // Update status with current photo info
-                    var fileName = Path.GetFileName(photoFiles[currentPhotoIndex]);
-                    StatusLabel.Text = $"Photo {currentPhotoIndex + 1} of {photoFiles.Count}: {fileName}";
-                }
-                catch (Exception ex)
-                {
-                    await DisplayAlertAsync("Error", "Failed to load photo: " + ex.Message, "OK");
-                    StatusLabel.Text = "Error loading photo";
-                }
-            }
-            else
-            {
-                // Reset the image display when no photo is available
-                PhotoDisplay.Source = null;
-                NoPhotoLabel.IsVisible = true;
-                StatusLabel.Text = "No photo to display";
-            }
-        }
+		private async Task<bool> HasStoragePermissionAsync()
+		{
+			if (DeviceInfo.Platform != DevicePlatform.Android)
+			{
+				return true;
+			}
 
-        private async void OnPreviousClicked(object sender, EventArgs e)
-        {
-            if (currentPhotoIndex > 0)
-            {
-                currentPhotoIndex--;
-                await LoadCurrentPhoto();
-                UpdateControlStates();
-            }
-        }
+			var storageStatus = await Permissions.RequestAsync<Permissions.StorageRead>();
+			if (storageStatus != PermissionStatus.Granted)
+			{
+				await DisplayAlertAsync("Permission Required", "Storage permission is required to access photos.", "OK");
+				return false;
+			}
 
-        private async void OnNextClicked(object sender, EventArgs e)
-        {
-            if (currentPhotoIndex < photoFiles.Count - 1)
-            {
-                currentPhotoIndex++;
-                await LoadCurrentPhoto();
-                UpdateControlStates();
-            }
-        }
+			if (OperatingSystem.IsAndroidVersionAtLeast(33))
+			{
+				var photoStatus = await Permissions.RequestAsync<Permissions.Photos>();
+				if (photoStatus != PermissionStatus.Granted)
+				{
+					await DisplayAlertAsync("Permission Required", "Photos permission is required to access images.", "OK");
+					return false;
+				}
+			}
 
-        private string GetNarrationPath()
-        {
-            if (currentPhotoIndex < 0 || currentPhotoIndex >= photoFiles.Count)
-                return string.Empty;
+			return true;
+		}
 
-            // Always save in the app's private directory under PhotoNarration folder
-            var appDataDir = FileSystem.Current.AppDataDirectory;
-            var narrationDir = Path.Combine(appDataDir, "PhotoNarration");
+		private async Task ShowSpeechPermissionGuidanceAsync()
+		{
+			string message = DeviceInfo.Platform == DevicePlatform.WinUI
+				? """
+					Speech transcription requires Online Speech Recognition to be enabled.
 
-            // Use the photo's filename (without path) as the base for the narration filename
-            var photoFileName = Path.GetFileName(photoFiles[currentPhotoIndex]);
-            var narrationFileName = Path.ChangeExtension(photoFileName, ".mp3");
+					To fix this on Windows:
+					1. Open Settings
+					2. Go to Privacy & security → Speech
+					3. Turn on "Online speech recognition"
 
-            return Path.Combine(narrationDir, narrationFileName);
-        }
+					Audio will still be recorded; only transcription will be skipped.
+					"""
+				: "Speech recognition permission was not granted. Audio will still be recorded, but transcription will be skipped.";
+			await DisplayAlertAsync("Transcription Unavailable", message, "OK");
+		}
 
-        private async void OnRecordClicked(object sender, EventArgs e)
-        {
-            if (_isRecording)
-            {
-                await SaveRecordingAsync().ConfigureAwait(true);
-                UpdateControlStates();
-                return;
-            }
+		private async Task LoadCurrentPhotoAsync()
+		{
+			var photoPath = _photoLibrary.CurrentPhotoPath;
+			if (photoPath is null)
+			{
+				PhotoDisplay.Source = null;
+				NoPhotoLabel.IsVisible = true;
+				StatusLabel.Text = "No photo to display";
+				return;
+			}
 
-            // Start recording...
-            try
-            {
-                // Request microphone permission
-                var status = await Permissions.RequestAsync<Permissions.Microphone>();
-                if (status != PermissionStatus.Granted)
-                {
-                    await DisplayAlertAsync(
-                        "Permission Required",
-                        "Microphone permission is required to record audio.",
-                        "OK");
-                    return;
-                }
+			try
+			{
+				PhotoDisplay.Source = ImageSource.FromFile(photoPath);
+				NoPhotoLabel.IsVisible = false;
+				TranscriptOverlay.IsVisible = false;
+				var fileName = Path.GetFileName(photoPath);
+				StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {fileName}";
+			}
+			catch (Exception ex)
+			{
+				await DisplayAlertAsync(Error, "Failed to load photo: " + ex.Message, "OK");
+				StatusLabel.Text = "Error loading photo";
+			}
+		}
 
-                _audioRecorder = _audioManager.CreateRecorder();
+		private async void OnPreviousClicked(object sender, EventArgs e)
+		{
+			if (_photoLibrary.MovePrevious())
+			{
+				await LoadCurrentPhotoAsync();
+				UpdateControlStates();
+			}
+		}
 
-                await _audioRecorder.StartAsync();
-                StatusLabel.Text = "Recording...";
-                RecordButton.Text = "Stop Recording";
-                _isRecording = true;
-            }
-            catch (Exception ex)
-            {
-                await DisplayAlertAsync("Error", "Failed to start recording: " + ex.Message, "OK");
-                StatusLabel.Text = "Failed to start recording";
-                _isRecording = false;
-            }
+		private async void OnNextClicked(object sender, EventArgs e)
+		{
+			if (_photoLibrary.MoveNext())
+			{
+				await LoadCurrentPhotoAsync();
+				UpdateControlStates();
+			}
+		}
 
-            UpdateControlStates();
-        }
+		private async void OnRecordClicked(object sender, EventArgs e)
+		{
+			if (_narrationService.IsRecording)
+			{
+				await SaveRecording();
+				return;
+			}
 
-        private async Task SaveRecordingAsync()
-        {
-            if (_audioRecorder == null)
-            {
-                return;
-            }
+			try
+			{
+				await _narrationService.StartRecordingAsync();
+				bool transcribing = await _speechToTextService.StartAsync();
 
-            StatusLabel.Text = "Saving recording...";
+				if (!transcribing)
+				{
+					await ShowSpeechPermissionGuidanceAsync();
+				}
 
-            try
-            {
-                IAudioSource? audioFile = await _audioRecorder.StopAsync().ConfigureAwait(true);
-                _audioRecorder = null;
+				StatusLabel.Text = "Recording...";
+				RecordButton.Text = "Stop Recording";
+				TranscriptOverlay.IsVisible = false;
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				await DisplayAlertAsync("Permission Required", ex.Message, "OK");
+				StatusLabel.Text = "Failed to start recording";
+			}
+			catch (Exception ex)
+			{
+				await DisplayAlertAsync(Error, "Failed to start recording: " + ex.Message, "OK");
+				StatusLabel.Text = "Failed to start recording";
+			}
 
-                // Save the recording with the same name as the photo but with .mp3 extension
-                var narrationPath = GetNarrationPath();
-                if (!string.IsNullOrEmpty(narrationPath))
-                {
-                    // Ensure the directory exists
-                    var directory = Path.GetDirectoryName(narrationPath);
-                    if (!string.IsNullOrEmpty(directory))
-                    {
-                        Directory.CreateDirectory(directory);
-                    }
+			UpdateControlStates();
+		}
 
-                    // Check if file already exists and delete it
-                    if (File.Exists(narrationPath))
-                    {
-                        File.Delete(narrationPath);
-                    }
+		private async Task SaveRecording()
+		{
+			StatusLabel.Text = "Saving recording...";
+			try
+			{
+				var narrationPath = _photoLibrary.GetNarrationPath();
 
-                    using (var audioStream = audioFile.GetAudioStream())
-                    using (var fileStream = File.Create(narrationPath))
-                    {
-                        await audioStream.CopyToAsync(fileStream);
-                    }
+				// Give the platform some time to fire the final RecognitionResultUpdated event after stopping.
+				await Task.Delay(500).ConfigureAwait(true);
+				string? recognizedText = await _speechToTextService.StopAsync();
+				await _narrationService.StopAndSaveAsync(narrationPath);
 
-                    StatusLabel.Text = "Recording saved";
-                }
-            }
-            catch (Exception ex)
-            {
-                await DisplayAlertAsync(
-                    "Error",
-                    $"Failed to save recording: {ex.Message}\nPath: {GetNarrationPath()}",
-                    "OK");
-                StatusLabel.Text = "Failed to save recording";
-            }
+				var photoFileName = Path.GetFileName(_photoLibrary.CurrentPhotoPath ?? string.Empty);
+				if (!string.IsNullOrWhiteSpace(photoFileName))
+				{
+					await _speechToTextService.SaveTranscriptAsync(
+						_photoLibrary.GetTranscriptPath(),
+						photoFileName,
+						recognizedText,
+						_photoLibrary.GetAllPhotoFileNames());
+				}
 
-            RecordButton.Text = "Record Narration";
-            _isRecording = false;
-        }
+				StatusLabel.Text = "Recording saved";
+				RecordButton.Text = "Re-record";
+			}
+			catch (Exception ex)
+			{
+				await DisplayAlertAsync(Error, $"Failed to save recording: {ex.Message}", "OK");
+				StatusLabel.Text = "Failed to save recording";
+			}
 
-        private async void OnPlayClicked(object sender, EventArgs e)
-        {
-            if (_isRecording)
-            {
-                return; // Do not play while recording
-            }
+			UpdateControlStates();
+		}
 
-            try
-            {
-                // If we're already playing something, stop it
-                if (_audioPlayer?.IsPlaying == true)
-                {
-                    _audioPlayer.Stop();
-                    _audioPlayer = null;
-                    PlayButton.Text = "Play Narration";
-                    StatusLabel.Text = "Playback stopped";
-                    UpdateControlStates();
-                    return;
-                }
+		private async void OnPlayClicked(object sender, EventArgs e)
+		{
+			if (_narrationService.IsRecording)
+			{
+				return;
+			}
 
-                string narrationPath = GetNarrationPath();
-                if (string.IsNullOrEmpty(narrationPath) || !File.Exists(narrationPath))
-                {
-                    StatusLabel.Text = "No narration available for this photo";
-                    return;
-                }
+			if (_narrationService.IsPlaying)
+			{
+				_narrationService.StopPlayback();
+				PlayButton.Text = "Play Narration";
+				StatusLabel.Text = "Playback stopped";
+				UpdateControlStates();
+				return;
+			}
 
-                // Create a new audio player directly from the file
-                _audioPlayer = _audioManager.CreatePlayer(File.OpenRead(narrationPath));
+			try
+			{
+				await _narrationService.PlayAsync(_photoLibrary.GetNarrationPath());
+				PlayButton.Text = "Stop Playback";
+				StatusLabel.Text = "Playing narration...";
+			}
+			catch (FileNotFoundException)
+			{
+				StatusLabel.Text = "No narration available for this photo";
+			}
+			catch (Exception ex)
+			{
+				await DisplayAlertAsync(Error, $"Failed to play audio: {ex.Message}", "OK");
+				StatusLabel.Text = "Playback failed";
+			}
 
-                // Handle playback completion
-                _audioPlayer.PlaybackEnded += (s, args) =>
-                {
-                    MainThread.BeginInvokeOnMainThread(() =>
-                    {
-                        _audioPlayer = null;
-                        PlayButton.Text = "Play Narration";
-                        StatusLabel.Text = "Playback finished";
-                        UpdateControlStates();
-                    });
-                };
+			UpdateControlStates();
+		}
 
-                // Start playback
-                _audioPlayer.Play();
-                PlayButton.Text = "Stop Playback";
-                StatusLabel.Text = "Playing narration...";
-            }
-            catch (Exception ex)
-            {
-                await DisplayAlertAsync("Error", $"Failed to play audio: {ex.Message}", "OK");
-                StatusLabel.Text = "Playback failed";
-                _audioPlayer = null;
-            }
+		private void OnPlaybackEnded(object? sender, EventArgs e)
+		{
+			MainThread.BeginInvokeOnMainThread(() =>
+			{
+				PlayButton.Text = "Play Narration";
+				StatusLabel.Text = "Playback finished";
+				UpdateControlStates();
+			});
+		}
 
-            UpdateControlStates();
-        }
+		private async void OnPhotoTapped(object? sender, TappedEventArgs e)
+		{
+			if (TranscriptOverlay.IsVisible)
+			{
+				TranscriptOverlay.IsVisible = false;
+				return;
+			}
 
+			var photoFileName = Path.GetFileName(_photoLibrary.CurrentPhotoPath ?? string.Empty);
+			if (string.IsNullOrWhiteSpace(photoFileName))
+			{
+				return;
+			}
 
-        private void UpdateControlStates()
-        {
-            bool hasPhotos = photoFiles.Any();
-            bool isRecording = _isRecording;
-            bool isPlaying = _audioPlayer?.IsPlaying == true;
+			try
+			{
+				var transcript = await _speechToTextService.GetTranscriptForPhotoAsync(_photoLibrary.GetTranscriptPath(), photoFileName);
+				TranscriptLabel.Text = transcript ?? "No transcription available for this photo.";
+				TranscriptOverlay.IsVisible = true;
+			}
+			catch (Exception)
+			{
+				await DisplayAlertAsync(Error, "Unable to load the transcript for this photo.", "OK");
+			}
+		}
 
-            PreviousButton.IsEnabled = hasPhotos && currentPhotoIndex > 0 && !isRecording && !isPlaying;
-            NextButton.IsEnabled = hasPhotos && currentPhotoIndex < photoFiles.Count - 1 && !isRecording && !isPlaying;
-            RecordButton.IsEnabled = hasPhotos && !isPlaying;
-            PlayButton.IsEnabled = hasPhotos && !isRecording; //&& File.Exists(GetNarrationPath());
-        }
-    }
+		private void OnTranscriptOverlayTapped(object? sender, TappedEventArgs e)
+		{
+			TranscriptOverlay.IsVisible = false;
+		}
+
+		private void UpdateControlStates()
+		{
+			bool hasPhotos = _photoLibrary.HasPhotos;
+			bool isRecording = _narrationService.IsRecording;
+			bool isPlaying = _narrationService.IsPlaying;
+			bool hasNarration = hasPhotos && File.Exists(_photoLibrary.GetNarrationPath());
+
+			var navColor = (Color)Application.Current!.Resources["NavigationBarColor"];
+			var disabledColor = Colors.Gray;
+
+			bool prevEnabled = hasPhotos && _photoLibrary.CurrentPhotoIndex > 0 && !isRecording && !isPlaying;
+			PreviousButton.IsEnabled = prevEnabled;
+			PreviousButton.BackgroundColor = prevEnabled ? navColor : disabledColor;
+
+			bool nextEnabled = hasPhotos && _photoLibrary.CurrentPhotoIndex < _photoLibrary.PhotoCount - 1 && !isRecording && !isPlaying;
+			NextButton.IsEnabled = nextEnabled;
+			NextButton.BackgroundColor = nextEnabled ? navColor : disabledColor;
+
+			RecordButton.IsEnabled = hasPhotos && !isPlaying;
+			if (!isRecording)
+			{
+				RecordButton.BackgroundColor = hasNarration ? Colors.Red : Colors.Green;
+				RecordButton.Text = hasNarration ? "Re-record" : "Record Narration";
+			}
+
+			bool playEnabled = hasPhotos && !isRecording && hasNarration;
+			PlayButton.IsEnabled = playEnabled;
+			PlayButton.BackgroundColor = playEnabled ? navColor : disabledColor;
+		}
+	}
 }

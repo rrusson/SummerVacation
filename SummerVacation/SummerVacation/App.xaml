@@ -4,24 +4,16 @@
              xmlns:local="clr-namespace:SummerVacation"
              x:Class="SummerVacation.App">
     <Application.Resources>
-        <Thickness x:Key="PageMargin">20</Thickness>
-
-        <!-- Colors -->
-        <Color x:Key="AppBackgroundColor">AliceBlue</Color>
-        <Color x:Key="NavigationBarColor">#1976D2</Color>
-        <Color x:Key="NavigationBarTextColor">White</Color>
-        <Color x:Key="NormalTextColor">Black</Color>
-        <Color x:Key="Gray300">DimGray</Color>
-        <Color x:Key="Gray600">DarkSlateGray</Color>
-
         <ResourceDictionary>
+            <Thickness x:Key="PageMargin">20</Thickness>
 
-            <!--
-                For information about styling .NET MAUI pages
-                please refer to the documentation:
-                https://go.microsoft.com/fwlink/?linkid=2282329
-            -->
-
+            <!-- Colors -->
+            <Color x:Key="AppBackgroundColor">AliceBlue</Color>
+            <Color x:Key="NavigationBarColor">#1976D2</Color>
+            <Color x:Key="NavigationBarTextColor">White</Color>
+            <Color x:Key="NormalTextColor">Black</Color>
+            <Color x:Key="Gray300">DimGray</Color>
+            <Color x:Key="Gray600">DarkSlateGray</Color>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

@@ -1,10 +1,10 @@
 ﻿using Foundation;
 
-namespace SummerVacation
+namespace SummerVacation.Platforms.iOS
 {
-    [Register("AppDelegate")]
-    public class AppDelegate : MauiUIApplicationDelegate
-    {
-        protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp();
-    }
+	[Register("AppDelegate")]
+	public class AppDelegate : MauiUIApplicationDelegate
+	{
+		protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp();
+	}
 }
