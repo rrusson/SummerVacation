@@ -139,6 +139,37 @@ public class SpeechToTextService : ISpeechToTextService
 		await File.WriteAllLinesAsync(transcriptPath, lines, cancellationToken);
 	}
 
+	/// <summary>
+	/// Reads the transcript file and returns the transcribed text for <paramref name="photoFileName"/>, or null if not found.
+	/// </summary>
+	public async Task<string?> GetTranscriptForPhotoAsync(
+		string transcriptPath,
+		string photoFileName,
+		CancellationToken cancellationToken = default)
+	{
+		if (!File.Exists(transcriptPath))
+		{
+			return null;
+		}
+
+		string separator = ":\t";
+		foreach (var line in await File.ReadAllLinesAsync(transcriptPath, cancellationToken))
+		{
+			var separatorIndex = line.IndexOf(separator, StringComparison.Ordinal);
+			if (separatorIndex > 0)
+			{
+				var key = line[..separatorIndex];
+				if (string.Equals(key, photoFileName, StringComparison.OrdinalIgnoreCase))
+				{
+					var value = line[(separatorIndex + separator.Length)..];
+					return string.IsNullOrWhiteSpace(value) ? null : value;
+				}
+			}
+		}
+
+		return null;
+	}
+
 	private void OnRecognitionResultUpdated(object? sender, SpeechToTextRecognitionResultUpdatedEventArgs e)
 	{
 		if (!string.IsNullOrEmpty(e.RecognitionResult))

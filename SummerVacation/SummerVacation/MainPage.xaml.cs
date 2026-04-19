@@ -136,6 +136,7 @@ namespace SummerVacation
 			{
 				PhotoDisplay.Source = ImageSource.FromFile(photoPath);
 				NoPhotoLabel.IsVisible = false;
+				TranscriptOverlay.IsVisible = false;
 				var fileName = Path.GetFileName(photoPath);
 				StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {fileName}";
 			}
@@ -184,6 +185,7 @@ namespace SummerVacation
 
 				StatusLabel.Text = "Recording...";
 				RecordButton.Text = "Stop Recording";
+				TranscriptOverlay.IsVisible = false;
 			}
 			catch (UnauthorizedAccessException ex)
 			{
@@ -276,6 +278,31 @@ namespace SummerVacation
 				StatusLabel.Text = "Playback finished";
 				UpdateControlStates();
 			});
+		}
+
+		private async void OnPhotoTapped(object? sender, TappedEventArgs e)
+		{
+			if (TranscriptOverlay.IsVisible)
+			{
+				TranscriptOverlay.IsVisible = false;
+				return;
+			}
+
+			var photoFileName = Path.GetFileName(_photoLibrary.CurrentPhotoPath ?? string.Empty);
+			if (string.IsNullOrWhiteSpace(photoFileName))
+			{
+				return;
+			}
+
+			var transcript = await _speechToTextService.GetTranscriptForPhotoAsync(_photoLibrary.GetTranscriptPath(), photoFileName);
+
+			TranscriptLabel.Text = transcript ?? "No transcription available for this photo.";
+			TranscriptOverlay.IsVisible = true;
+		}
+
+		private void OnTranscriptOverlayTapped(object? sender, TappedEventArgs e)
+		{
+			TranscriptOverlay.IsVisible = false;
 		}
 
 		private void UpdateControlStates()
