@@ -8,12 +8,14 @@ namespace SummerVacation
 
 		private readonly PhotoLibrary _photoLibrary;
 		private readonly AudioNarrationService _narrationService;
+		private readonly ISpeechToTextService _speechToTextService;
 
-		public MainPage(PhotoLibrary photoLibrary, AudioNarrationService narrationService)
+		public MainPage(PhotoLibrary photoLibrary, AudioNarrationService narrationService, ISpeechToTextService speechToTextService)
 		{
 			InitializeComponent();
 			_photoLibrary = photoLibrary;
 			_narrationService = narrationService;
+			_speechToTextService = speechToTextService;
 			_narrationService.PlaybackEnded += OnPlaybackEnded;
 			UpdateControlStates();
 		}
@@ -102,6 +104,23 @@ namespace SummerVacation
 			return true;
 		}
 
+		private async Task ShowSpeechPermissionGuidanceAsync()
+		{
+			string message = DeviceInfo.Platform == DevicePlatform.WinUI
+				? """
+					Speech transcription requires Online Speech Recognition to be enabled.
+
+					To fix this on Windows:
+					1. Open Settings
+					2. Go to Privacy & security → Speech
+					3. Turn on "Online speech recognition"
+
+					Audio will still be recorded; only transcription will be skipped.
+					"""
+				: "Speech recognition permission was not granted. Audio will still be recorded, but transcription will be skipped.";
+			await DisplayAlertAsync("Transcription Unavailable", message, "OK");
+		}
+
 		private async Task LoadCurrentPhotoAsync()
 		{
 			var photoPath = _photoLibrary.CurrentPhotoPath;
@@ -149,26 +168,20 @@ namespace SummerVacation
 		{
 			if (_narrationService.IsRecording)
 			{
-				StatusLabel.Text = "Saving recording...";
-				try
-				{
-					await _narrationService.StopAndSaveAsync(_photoLibrary.GetNarrationPath());
-					StatusLabel.Text = "Recording saved";
-					RecordButton.Text = "Re-record";
-				}
-				catch (Exception ex)
-				{
-					await DisplayAlertAsync(Error, $"Failed to save recording: {ex.Message}", "OK");
-					StatusLabel.Text = "Failed to save recording";
-				}
-
-				UpdateControlStates();
+				await SaveRecording();
 				return;
 			}
 
 			try
 			{
 				await _narrationService.StartRecordingAsync();
+				bool transcribing = await _speechToTextService.StartAsync();
+
+				if (!transcribing)
+				{
+					await ShowSpeechPermissionGuidanceAsync();
+				}
+
 				StatusLabel.Text = "Recording...";
 				RecordButton.Text = "Stop Recording";
 			}
@@ -181,6 +194,40 @@ namespace SummerVacation
 			{
 				await DisplayAlertAsync(Error, "Failed to start recording: " + ex.Message, "OK");
 				StatusLabel.Text = "Failed to start recording";
+			}
+
+			UpdateControlStates();
+		}
+
+		private async Task SaveRecording()
+		{
+			StatusLabel.Text = "Saving recording...";
+			try
+			{
+				var narrationPath = _photoLibrary.GetNarrationPath();
+
+				// Give the platform some time to fire the final RecognitionResultUpdated event after stopping.
+				await Task.Delay(500).ConfigureAwait(true);
+				string? recognizedText = await _speechToTextService.StopAsync();
+				await _narrationService.StopAndSaveAsync(narrationPath);
+
+				var photoFileName = Path.GetFileName(_photoLibrary.CurrentPhotoPath ?? string.Empty);
+				if (!string.IsNullOrWhiteSpace(photoFileName))
+				{
+					await _speechToTextService.SaveTranscriptAsync(
+						_photoLibrary.GetTranscriptPath(),
+						photoFileName,
+						recognizedText,
+						_photoLibrary.GetAllPhotoFileNames());
+				}
+
+				StatusLabel.Text = "Recording saved";
+				RecordButton.Text = "Re-record";
+			}
+			catch (Exception ex)
+			{
+				await DisplayAlertAsync(Error, $"Failed to save recording: {ex.Message}", "OK");
+				StatusLabel.Text = "Failed to save recording";
 			}
 
 			UpdateControlStates();

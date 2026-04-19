@@ -88,6 +88,32 @@ public sealed class PhotoLibrary
 	}
 
 	/// <summary>
+	/// Returns the file system path of the narration transcript file for the current photo directory,
+	/// or an empty string if no directory is loaded.
+	/// </summary>
+	public string GetTranscriptPath()
+	{
+		if (CurrentDirectory is null)
+		{
+			return string.Empty;
+		}
+
+		if (CanWriteToPhotoDirectory)
+		{
+			return Path.Combine(CurrentDirectory, "narrations.txt");
+		}
+
+		var narrationDir = Path.Combine(FileSystem.Current.AppDataDirectory, "PhotoNarration");
+		return Path.Combine(narrationDir, "narrations.txt");
+	}
+
+	/// <summary>
+	/// Returns the file names (without directory) for all loaded photos.
+	/// </summary>
+	public IReadOnlyList<string> GetAllPhotoFileNames() =>
+		_photoFiles.Select(Path.GetFileName).Where(n => n is not null).Cast<string>().ToList();
+
+	/// <summary>
 	/// Returns the file system path where the narration for the current photo should be stored,
 	/// or an empty string if there is no current photo.
 	/// </summary>

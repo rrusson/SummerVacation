@@ -14,6 +14,7 @@ public sealed class AudioNarrationService : IDisposable
 	public event EventHandler? PlaybackEnded;
 
 	public bool IsRecording { get; private set; }
+
 	public bool IsPlaying => _audioPlayer?.IsPlaying == true;
 
 	public AudioNarrationService(IAudioManager audioManager)
@@ -47,10 +48,11 @@ public sealed class AudioNarrationService : IDisposable
 	{
 		if (_audioRecorder is null)
 		{
+			IsRecording = false; 
 			return;
 		}
 
-		var audioSource = await _audioRecorder.StopAsync();
+		var audioSource = await _audioRecorder.StopAsync().ConfigureAwait(true);
 		_audioRecorder = null;
 		IsRecording = false;
 

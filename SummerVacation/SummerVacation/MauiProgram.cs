@@ -1,4 +1,5 @@
 ﻿using CommunityToolkit.Maui;
+using CommunityToolkit.Maui.Media;
 
 using Microsoft.Extensions.Logging;
 
@@ -26,7 +27,26 @@ namespace SummerVacation
 			// Add audio recording service
 			builder.Services.AddSingleton(AudioManager.Current);
 
-			// Register services
+			// Add speech-to-text service — fall back to a no-op when the device doesn't support it.
+#if ANDROID
+			bool hasSpeechToText = Android.Speech.SpeechRecognizer.IsRecognitionAvailable(Android.App.Application.Context);
+
+			if (hasSpeechToText)
+			{
+				builder.Services.AddSingleton<ISpeechToText>(SpeechToText.Default);
+				builder.Services.AddTransient<ISpeechToTextService, SpeechToTextService>();
+			}
+			else
+			{
+				builder.Services.AddSingleton<ISpeechToText>(new Services.NullSpeechToText());
+				builder.Services.AddTransient<ISpeechToTextService, MockSpeechToTextService>();
+			}
+#else
+			builder.Services.AddSingleton<ISpeechToText>(SpeechToText.Default);
+			builder.Services.AddTransient<ISpeechToTextService, SpeechToTextService>();
+#endif
+
+			// Register other services
 			builder.Services.AddTransient<PhotoLibrary>();
 			builder.Services.AddTransient<AudioNarrationService>();
 
