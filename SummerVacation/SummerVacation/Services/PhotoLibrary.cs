@@ -137,12 +137,15 @@ public sealed class PhotoLibrary
 		return Path.Combine(narrationDir, narrationFileName);
 	}
 
+	private static readonly HashSet<string> PhotoExtensions =
+		new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic", ".heif", ".tiff", ".tif" };
+
 	private void LoadPhotosFromDirectory(string directory)
 	{
 		CurrentDirectory = directory;
-		_photoFiles = Directory.GetFiles(directory, "*.jpg", SearchOption.TopDirectoryOnly)
-			.Concat(Directory.GetFiles(directory, "*.jpeg", SearchOption.TopDirectoryOnly))
-			.OrderBy(f => f)
+		_photoFiles = Directory.GetFiles(directory, "*.*", SearchOption.TopDirectoryOnly)
+			.Where(f => PhotoExtensions.Contains(Path.GetExtension(f)))
+			.OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
 			.ToList();
 
 		CurrentPhotoIndex = _photoFiles.Count != 0 ? 0 : -1;

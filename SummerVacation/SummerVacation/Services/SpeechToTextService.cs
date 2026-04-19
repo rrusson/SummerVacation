@@ -1,5 +1,4 @@
 using CommunityToolkit.Maui.Media;
-
 using System.Globalization;
 
 namespace SummerVacation.Services;
@@ -41,8 +40,6 @@ public class SpeechToTextService : ISpeechToTextService
 			return false;
 		}
 
-		_speechToText.RecognitionResultUpdated += OnRecognitionResultUpdated;
-		_speechToText.RecognitionResultCompleted += OnRecognitionResultCompleted;
 		_currentRecognitionResult = null;
 
 		try
@@ -58,12 +55,13 @@ public class SpeechToTextService : ISpeechToTextService
 		catch (UnauthorizedAccessException)
 		{
 			// On Windows, RequestPermissions may return true even when Online Speech Recognition
-			// is disabled in Privacy Settings; StartListenAsync then throws. Treat this as a
-			// permission denial so the caller can show guidance without crashing.
-			_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
+			// is disabled in Privacy Settings causing StartListenAsync to throw.
+			// Treat this as a permission denial so the caller can see guidance without crashing.
 			return false;
 		}
 
+		_speechToText.RecognitionResultUpdated += OnRecognitionResultUpdated;
+		_speechToText.RecognitionResultCompleted += OnRecognitionResultCompleted;
 		_isListening = true;
 		return true;
 	}
@@ -80,6 +78,7 @@ public class SpeechToTextService : ISpeechToTextService
 
 		await _speechToText.StopListenAsync(cancellationToken).ConfigureAwait(true);
 
+		_speechToText.RecognitionResultUpdated -= OnRecognitionResultUpdated;
 		_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
 		_isListening = false;
 		return _currentRecognitionResult;
@@ -183,9 +182,10 @@ public class SpeechToTextService : ISpeechToTextService
 		if (e.RecognitionResult.IsSuccessful)
 		{
 			_currentRecognitionResult = e.RecognitionResult.Text is null ? _currentRecognitionResult : e.RecognitionResult.Text;
-			_isListening = false;
-			_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
 		}
+
+		_isListening = false;
+		_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
 	}
 
 	protected virtual void Dispose(bool disposing)
@@ -194,8 +194,8 @@ public class SpeechToTextService : ISpeechToTextService
 		{
 			if (disposing && _isListening)
 			{
-				_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
 				_speechToText.RecognitionResultUpdated -= OnRecognitionResultUpdated;
+				_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
 				// Fire-and-forget; best effort cleanup on dispose.
 				_ = _speechToText.StopListenAsync(CancellationToken.None);
 			}

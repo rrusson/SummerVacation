@@ -294,10 +294,16 @@ namespace SummerVacation
 				return;
 			}
 
-			var transcript = await _speechToTextService.GetTranscriptForPhotoAsync(_photoLibrary.GetTranscriptPath(), photoFileName);
-
-			TranscriptLabel.Text = transcript ?? "No transcription available for this photo.";
-			TranscriptOverlay.IsVisible = true;
+			try
+			{
+				var transcript = await _speechToTextService.GetTranscriptForPhotoAsync(_photoLibrary.GetTranscriptPath(), photoFileName);
+				TranscriptLabel.Text = transcript ?? "No transcription available for this photo.";
+				TranscriptOverlay.IsVisible = true;
+			}
+			catch (Exception)
+			{
+				await DisplayAlertAsync(Error, "Unable to load the transcript for this photo.", "OK");
+			}
 		}
 
 		private void OnTranscriptOverlayTapped(object? sender, TappedEventArgs e)
