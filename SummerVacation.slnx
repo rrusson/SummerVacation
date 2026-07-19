@@ -1,5 +1,18 @@
 <Solution>
-  <Project Path="SummerVacation/SummerVacation.Shared/SummerVacation.Shared.csproj" />
-  <Project Path="SummerVacation/SummerVacation.Web/SummerVacation.Web.csproj" />
-  <Project Path="SummerVacation/SummerVacation/SummerVacation.csproj" />
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="SummerVacation/SummerVacation.Shared/SummerVacation.Shared.csproj">
+    <Platform Solution="*|x64" Project="x64" />
+  </Project>
+  <Project Path="SummerVacation/SummerVacation.Web/SummerVacation.Web.csproj">
+    <Platform Solution="*|x64" Project="x64" />
+    <Build Solution="Release|x64" Project="false" />
+  </Project>
+  <Project Path="SummerVacation/SummerVacation/SummerVacation.csproj">
+    <Platform Solution="*|x64" Project="x64" />
+    <Deploy Solution="*|x64" />
+    <Deploy Solution="Debug|Any CPU" />
+  </Project>
 </Solution>

@@ -5,52 +5,64 @@
   xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
-  IgnorableNamespaces="uap rescap uap3">
+  xmlns:uap18="http://schemas.microsoft.com/appx/manifest/uap/windows10/18"
+  IgnorableNamespaces="uap rescap uap3 uap18">
 
-  <Identity Name="maui-package-name-placeholder" Publisher="CN=User Name" Version="0.0.0.0" />
+  <Identity Name="r.russonconsulting.SummerVacation" Publisher="CN=D23D0FB7-307F-4B3E-BE69-AA46C6485874" Version="0.1.6.0" />
 
-  <mp:PhoneIdentity PhoneProductId="F0414E8C-4BA7-4562-A026-DE4E210BA0FD" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
+  <mp:PhoneIdentity PhoneProductId="897e7426-44bc-4e9f-8679-04e34f967f9f" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
-    <DisplayName>$placeholder$</DisplayName>
-    <PublisherDisplayName>User Name</PublisherDisplayName>
-    <Logo>$placeholder$.png</Logo>
+	<DisplayName>SummerVacation</DisplayName>
+	<PublisherDisplayName>r.russon consulting</PublisherDisplayName>
+	<Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
   <Dependencies>
-    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
-    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
+	<TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
+	<TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
   </Dependencies>
 
   <Resources>
-    <Resource Language="x-generate" />
+	<Resource Language="x-generate" />
   </Resources>
 
   <Applications>
-    <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="$targetentrypoint$">
-      <uap:VisualElements
-        DisplayName="$placeholder$"
-        Description="$placeholder$"
-        Square150x150Logo="$placeholder$.png"
-        Square44x44Logo="$placeholder$.png"
-        BackgroundColor="transparent">
-        <uap:DefaultTile Square71x71Logo="$placeholder$.png" Wide310x150Logo="$placeholder$.png" Square310x310Logo="$placeholder$.png" />
-        <uap:SplashScreen Image="$placeholder$.png" />
-      </uap:VisualElements>
-      <Extensions>
-        <uap:Extension Category="windows.mediaPlayback">
-          <uap:MediaPlayback>
-            <uap:Codec Name="mp3"/>
-          </uap:MediaPlayback>
-        </uap:Extension>
-      </Extensions>
-    </Application>
+	<Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="$targetentrypoint$" uap18:TrustLevel="appContainer" uap18:RuntimeBehavior="windowsApp">
+	  <uap:VisualElements
+		DisplayName="SummerVacation"
+		Description="An app to add narration to all your photos"
+		Square150x150Logo="Assets\Square150x150Logo.png"
+		Square44x44Logo="Assets\Square44x44Logo.png"
+		BackgroundColor="transparent">
+		<uap:DefaultTile Square71x71Logo="Assets\Square71x71Logo.png" Wide310x150Logo="Assets\Wide310x150Logo.png" Square310x310Logo="Assets\Square310x310Logo.png"  ShortName="SummerVacationIcon">
+		  <uap:ShowNameOnTiles>
+			<uap:ShowOn Tile="square150x150Logo"/>
+			<uap:ShowOn Tile="wide310x150Logo"/>
+			<uap:ShowOn Tile="square310x310Logo"/>
+		  </uap:ShowNameOnTiles>
+		</uap:DefaultTile >
+		<uap:SplashScreen Image="Assets\SplashScreen.png" />
+		<uap:InitialRotationPreference>
+		  <uap:Rotation Preference="landscape"/>
+		  <uap:Rotation Preference="portrait"/></uap:InitialRotationPreference>
+		<uap:LockScreen Notification="badge" BadgeLogo="Assets\BadgeLogo.png"/>
+	  </uap:VisualElements>
+	  <Extensions>
+		<uap:Extension Category="windows.mediaPlayback">
+		  <uap:MediaPlayback>
+			<uap:Codec Name="mp3"/>
+		  </uap:MediaPlayback>
+		</uap:Extension>
+	  </Extensions>
+	</Application>
   </Applications>
 
   <Capabilities>
-    <rescap:Capability Name="runFullTrust" />
-    <uap3:Capability Name="backgroundMediaPlayback"/>
-    <DeviceCapability Name="microphone"/>
+	<rescap:Capability Name="runFullTrust" />
+	<uap3:Capability Name="backgroundMediaPlayback"/>
+	<uap:Capability Name="picturesLibrary"/>
+	<DeviceCapability Name="microphone"/>
   </Capabilities>
 
 </Package>
