@@ -18,13 +18,15 @@ namespace SummerVacation
 		private readonly PhotoLibrary _photoLibrary;
 		private readonly AudioNarrationService _narrationService;
 		private readonly ISpeechToTextService _speechToTextService;
+		private readonly IPhotoCommentService _photoCommentService;
 
-		public MainPage(PhotoLibrary photoLibrary, AudioNarrationService narrationService, ISpeechToTextService speechToTextService)
+		public MainPage(PhotoLibrary photoLibrary, AudioNarrationService narrationService, ISpeechToTextService speechToTextService, IPhotoCommentService photoCommentService)
 		{
 			InitializeComponent();
 			_photoLibrary = photoLibrary;
 			_narrationService = narrationService;
 			_speechToTextService = speechToTextService;
+			_photoCommentService = photoCommentService;
 			_narrationService.PlaybackEnded += OnPlaybackEnded;
 			SelectDirectoryButton.Text = SelectDirectoryText;
 			RecordButton.Text = RecordNarrationText;
@@ -239,6 +241,19 @@ namespace SummerVacation
 						_photoLibrary.GetAllPhotoFileNames());
 				}
 
+				if (_photoLibrary.CurrentPhotoPath is string currentPhotoPath)
+				{
+					try
+					{
+						await _photoCommentService.EmbedCommentAsync(currentPhotoPath, recognizedText);
+					}
+					catch (Exception ex)
+					{
+						// Embedding the comment is a best-effort enhancement; don't fail the whole save if it doesn't work.
+						System.Diagnostics.Debug.WriteLine($"Failed to embed comment into photo: {ex.Message}");
+					}
+				}
+
 				StatusLabel.Text = "Recording saved";
 				RecordButton.Text = ReRecordNarrationText;
 			}
@@ -327,6 +342,37 @@ namespace SummerVacation
 			TranscriptOverlay.IsVisible = false;
 		}
 
+		private void UpdateControlStates()
+		{
+			bool hasPhotos = _photoLibrary.HasPhotos;
+			bool isRecording = _narrationService.IsRecording;
+			bool isPlaying = _narrationService.IsPlaying;
+			bool hasNarration = hasPhotos && File.Exists(_photoLibrary.GetNarrationPath());
+
+			var navColor = (Color)Microsoft.Maui.Controls.Application.Current!.Resources["NavigationBarColor"];
+			var disabledColor = Colors.Gray;
+
+			bool prevEnabled = hasPhotos && _photoLibrary.CurrentPhotoIndex > 0 && !isRecording && !isPlaying;
+			PreviousButton.IsEnabled = prevEnabled;
+			PreviousButton.BackgroundColor = prevEnabled ? navColor : disabledColor;
+
+			bool nextEnabled = hasPhotos && _photoLibrary.CurrentPhotoIndex < _photoLibrary.PhotoCount - 1 && !isRecording && !isPlaying;
+			NextButton.IsEnabled = nextEnabled;
+			NextButton.BackgroundColor = nextEnabled ? navColor : disabledColor;
+
+			RecordButton.IsEnabled = hasPhotos && !isPlaying;
+			if (!isRecording)
+			{
+				RecordButton.BackgroundColor = hasNarration ? Colors.Red : Colors.Green;
+				RecordButton.Text = hasNarration ? ReRecordNarrationText : RecordNarrationText;
+			}
+
+			bool playEnabled = hasPhotos && !isRecording && hasNarration;
+			PlayButton.IsEnabled = playEnabled;
+			PlayButton.BackgroundColor = playEnabled ? navColor : disabledColor;
+		}
+
+		// Windows Hotkeys Wiring: Left Arrow = Previous, Right Arrow = Next, R = Record, P = Play, S = Select Directory
 #if WINDOWS
 		private void OnPageLoaded(object? sender, EventArgs e)
 		{
@@ -378,35 +424,5 @@ namespace SummerVacation
 			}
 		}
 #endif
-
-		private void UpdateControlStates()
-		{
-			bool hasPhotos = _photoLibrary.HasPhotos;
-			bool isRecording = _narrationService.IsRecording;
-			bool isPlaying = _narrationService.IsPlaying;
-			bool hasNarration = hasPhotos && File.Exists(_photoLibrary.GetNarrationPath());
-
-			var navColor = (Color)Microsoft.Maui.Controls.Application.Current!.Resources["NavigationBarColor"];
-			var disabledColor = Colors.Gray;
-
-			bool prevEnabled = hasPhotos && _photoLibrary.CurrentPhotoIndex > 0 && !isRecording && !isPlaying;
-			PreviousButton.IsEnabled = prevEnabled;
-			PreviousButton.BackgroundColor = prevEnabled ? navColor : disabledColor;
-
-			bool nextEnabled = hasPhotos && _photoLibrary.CurrentPhotoIndex < _photoLibrary.PhotoCount - 1 && !isRecording && !isPlaying;
-			NextButton.IsEnabled = nextEnabled;
-			NextButton.BackgroundColor = nextEnabled ? navColor : disabledColor;
-
-			RecordButton.IsEnabled = hasPhotos && !isPlaying;
-			if (!isRecording)
-			{
-				RecordButton.BackgroundColor = hasNarration ? Colors.Red : Colors.Green;
-				RecordButton.Text = hasNarration ? ReRecordNarrationText : RecordNarrationText;
-			}
-
-			bool playEnabled = hasPhotos && !isRecording && hasNarration;
-			PlayButton.IsEnabled = playEnabled;
-			PlayButton.BackgroundColor = playEnabled ? navColor : disabledColor;
-		}
 	}
 }

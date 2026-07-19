@@ -49,6 +49,7 @@ namespace SummerVacation
 			// Register other services
 			builder.Services.AddTransient<PhotoLibrary>();
 			builder.Services.AddTransient<AudioNarrationService>();
+			builder.Services.AddTransient<IPhotoCommentService, PhotoCommentService>();
 
 			// Register pages and app shell with dependency injection
 			builder.Services.AddTransient<MainPage>();
