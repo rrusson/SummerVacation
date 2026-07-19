@@ -1,10 +1,19 @@
 ﻿using SummerVacation.Services;
 
+#if WINDOWS
+using Microsoft.UI.Xaml.Input;
+using Windows.System;
+#endif
+
 namespace SummerVacation
 {
 	public partial class MainPage : ContentPage
 	{
 		private const string Error = "Error";
+		private const string SelectDirectoryText = "S̲elect Photo Directory";
+		private const string RecordNarrationText = "R̲ecord Narration";
+		private const string ReRecordNarrationText = "R̲e-record";
+		private const string PlayNarrationText = "P̲lay Narration";
 
 		private readonly PhotoLibrary _photoLibrary;
 		private readonly AudioNarrationService _narrationService;
@@ -17,6 +26,13 @@ namespace SummerVacation
 			_narrationService = narrationService;
 			_speechToTextService = speechToTextService;
 			_narrationService.PlaybackEnded += OnPlaybackEnded;
+			SelectDirectoryButton.Text = SelectDirectoryText;
+			RecordButton.Text = RecordNarrationText;
+			PlayButton.Text = PlayNarrationText;
+#if WINDOWS
+			Loaded += OnPageLoaded;
+			Unloaded += OnPageUnloaded;
+#endif
 			UpdateControlStates();
 		}
 
@@ -184,7 +200,7 @@ namespace SummerVacation
 				}
 
 				StatusLabel.Text = "Recording...";
-				RecordButton.Text = "Stop Recording";
+				RecordButton.Text = "Stop R̲ecording";
 				TranscriptOverlay.IsVisible = false;
 			}
 			catch (UnauthorizedAccessException ex)
@@ -224,7 +240,7 @@ namespace SummerVacation
 				}
 
 				StatusLabel.Text = "Recording saved";
-				RecordButton.Text = "Re-record";
+				RecordButton.Text = ReRecordNarrationText;
 			}
 			catch (Exception ex)
 			{
@@ -245,7 +261,7 @@ namespace SummerVacation
 			if (_narrationService.IsPlaying)
 			{
 				_narrationService.StopPlayback();
-				PlayButton.Text = "Play Narration";
+				PlayButton.Text = PlayNarrationText;
 				StatusLabel.Text = "Playback stopped";
 				UpdateControlStates();
 				return;
@@ -254,7 +270,7 @@ namespace SummerVacation
 			try
 			{
 				await _narrationService.PlayAsync(_photoLibrary.GetNarrationPath());
-				PlayButton.Text = "Stop Playback";
+				PlayButton.Text = "Stop P̲layback";
 				StatusLabel.Text = "Playing narration...";
 			}
 			catch (FileNotFoundException)
@@ -274,13 +290,13 @@ namespace SummerVacation
 		{
 			MainThread.BeginInvokeOnMainThread(() =>
 			{
-				PlayButton.Text = "Play Narration";
+				PlayButton.Text = PlayNarrationText;
 				StatusLabel.Text = "Playback finished";
 				UpdateControlStates();
 			});
 		}
 
-		private async void OnPhotoTapped(object? sender, TappedEventArgs e)
+		private async void OnPhotoTapped(object? sender, Microsoft.Maui.Controls.TappedEventArgs e)
 		{
 			if (TranscriptOverlay.IsVisible)
 			{
@@ -306,10 +322,62 @@ namespace SummerVacation
 			}
 		}
 
-		private void OnTranscriptOverlayTapped(object? sender, TappedEventArgs e)
+		private void OnTranscriptOverlayTapped(object? sender, Microsoft.Maui.Controls.TappedEventArgs e)
 		{
 			TranscriptOverlay.IsVisible = false;
 		}
+
+#if WINDOWS
+		private void OnPageLoaded(object? sender, EventArgs e)
+		{
+			if (Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement frameworkElement)
+			{
+				frameworkElement.KeyDown += OnWindowsKeyDown;
+				frameworkElement.IsTabStop = true;
+				frameworkElement.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+			}
+		}
+
+		private void OnPageUnloaded(object? sender, EventArgs e)
+		{
+			if (Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement frameworkElement)
+			{
+				frameworkElement.KeyDown -= OnWindowsKeyDown;
+			}
+		}
+
+		private void OnWindowsKeyDown(object sender, KeyRoutedEventArgs e)
+		{
+			if (e.Handled)
+			{
+				return;
+			}
+
+			switch (e.Key)
+			{
+				case VirtualKey.Left when PreviousButton.IsEnabled:
+					OnPreviousClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.Right when NextButton.IsEnabled:
+					OnNextClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.R when RecordButton.IsEnabled:
+					OnRecordClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.P when PlayButton.IsEnabled:
+					OnPlayClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.S when SelectDirectoryButton.IsEnabled:
+					OnSelectDirectoryClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+			}
+		}
+#endif
 
 		private void UpdateControlStates()
 		{
@@ -318,7 +386,7 @@ namespace SummerVacation
 			bool isPlaying = _narrationService.IsPlaying;
 			bool hasNarration = hasPhotos && File.Exists(_photoLibrary.GetNarrationPath());
 
-			var navColor = (Color)Application.Current!.Resources["NavigationBarColor"];
+			var navColor = (Color)Microsoft.Maui.Controls.Application.Current!.Resources["NavigationBarColor"];
 			var disabledColor = Colors.Gray;
 
 			bool prevEnabled = hasPhotos && _photoLibrary.CurrentPhotoIndex > 0 && !isRecording && !isPlaying;
@@ -333,7 +401,7 @@ namespace SummerVacation
 			if (!isRecording)
 			{
 				RecordButton.BackgroundColor = hasNarration ? Colors.Red : Colors.Green;
-				RecordButton.Text = hasNarration ? "Re-record" : "Record Narration";
+				RecordButton.Text = hasNarration ? ReRecordNarrationText : RecordNarrationText;
 			}
 
 			bool playEnabled = hasPhotos && !isRecording && hasNarration;

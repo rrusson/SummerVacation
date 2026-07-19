@@ -66,8 +66,8 @@
         <VerticalStackLayout Grid.Row="2" Spacing="10">
             <!-- Directory selection -->
             <Button x:Name="SelectDirectoryButton"
-                    Text="Select Photo Directory"
-                    SemanticProperties.Hint="Choose directory containing photos"
+                    Text="S̲elect Photo Directory"
+                    SemanticProperties.Hint="Choose directory containing photos. Keyboard shortcut: S"
                     Clicked="OnSelectDirectoryClicked"
                     HorizontalOptions="Center"
                     BackgroundColor="{StaticResource NavigationBarColor}"
@@ -76,16 +76,16 @@
             <!-- Navigation buttons -->
             <HorizontalStackLayout HorizontalOptions="Center" Spacing="20">
                 <Button x:Name="PreviousButton"
-                        Text="Previous"
-                        SemanticProperties.Hint="Go to previous photo"
+                        Text="&lt; Previous"
+                        SemanticProperties.Hint="Go to previous photo. Keyboard shortcut: Left Arrow"
                         Clicked="OnPreviousClicked"
                         HorizontalOptions="Center"
                         BackgroundColor="{StaticResource NavigationBarColor}"
                         TextColor="{StaticResource NavigationBarTextColor}"/>
                 
                 <Button x:Name="NextButton"
-                        Text="Next"
-                        SemanticProperties.Hint="Go to next photo"
+                        Text="Next &gt;"
+                        SemanticProperties.Hint="Go to next photo. Keyboard shortcut: Right Arrow"
                         Clicked="OnNextClicked"
                         HorizontalOptions="Center"
                         BackgroundColor="{StaticResource NavigationBarColor}"
@@ -95,16 +95,16 @@
             <!-- Recording controls -->
             <HorizontalStackLayout HorizontalOptions="Center" Spacing="20">
                 <Button x:Name="RecordButton"
-                        Text="Record Narration"
-                        SemanticProperties.Hint="Record audio narration for current photo"
+                        Text="R̲ecord Narration"
+                        SemanticProperties.Hint="Record audio narration for current photo. Keyboard shortcut: R"
                         Clicked="OnRecordClicked"
                         BackgroundColor="Green"
                         TextColor="White"
                         HorizontalOptions="Center" />
                 
                 <Button x:Name="PlayButton"
-                        Text="Play Narration"
-                        SemanticProperties.Hint="Play recorded narration for current photo"
+                        Text="P̲lay Narration"
+                        SemanticProperties.Hint="Play recorded narration for current photo. Keyboard shortcut: P"
                         Clicked="OnPlayClicked"
                         BackgroundColor="{StaticResource NavigationBarColor}"
                         TextColor="{StaticResource NavigationBarTextColor}"
