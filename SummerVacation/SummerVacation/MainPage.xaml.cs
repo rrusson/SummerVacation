@@ -20,6 +20,16 @@ namespace SummerVacation
 		private readonly ISpeechToTextService _speechToTextService;
 		private readonly IPhotoCommentService _photoCommentService;
 
+		public bool ShowTranscriptOverlay
+		{
+			get;
+			set
+			{
+				field = value;
+				ShowTranscriptForCurrentPhotoAsync().ConfigureAwait(true);
+			}
+		} = true;
+
 		public MainPage(PhotoLibrary photoLibrary, AudioNarrationService narrationService, ISpeechToTextService speechToTextService, IPhotoCommentService photoCommentService)
 		{
 			InitializeComponent();
@@ -167,7 +177,7 @@ namespace SummerVacation
 
 		/// <summary>
 		/// Displays the saved transcript for the current photo, if any exists, and hides the overlay when
-		/// there is no narration text available (e.g. after navigating to a photo with no narration).
+		/// there is no narration text available (e.g. after navigating to a photo with no narration) or when overlay is toggled off.
 		/// </summary>
 		private async Task ShowTranscriptForCurrentPhotoAsync()
 		{
@@ -181,15 +191,8 @@ namespace SummerVacation
 			try
 			{
 				var transcript = await _speechToTextService.GetTranscriptForPhotoAsync(_photoLibrary.GetTranscriptPath(), photoFileName);
-				if (string.IsNullOrWhiteSpace(transcript))
-				{
-					TranscriptOverlay.IsVisible = false;
-				}
-				else
-				{
-					TranscriptLabel.Text = transcript;
-					TranscriptOverlay.IsVisible = true;
-				}
+				TranscriptLabel.Text = transcript;
+				TranscriptOverlay.IsVisible = !string.IsNullOrWhiteSpace(transcript) && ShowTranscriptOverlay;
 			}
 			catch (Exception)
 			{
@@ -375,33 +378,12 @@ namespace SummerVacation
 
 		private async void OnPhotoTapped(object? sender, Microsoft.Maui.Controls.TappedEventArgs e)
 		{
-			if (TranscriptOverlay.IsVisible)
-			{
-				TranscriptOverlay.IsVisible = false;
-				return;
-			}
-
-			var photoFileName = Path.GetFileName(_photoLibrary.CurrentPhotoPath ?? string.Empty);
-			if (string.IsNullOrWhiteSpace(photoFileName))
-			{
-				return;
-			}
-
-			try
-			{
-				var transcript = await _speechToTextService.GetTranscriptForPhotoAsync(_photoLibrary.GetTranscriptPath(), photoFileName);
-				TranscriptLabel.Text = transcript ?? "No transcription available for this photo.";
-				TranscriptOverlay.IsVisible = true;
-			}
-			catch (Exception)
-			{
-				await DisplayAlertAsync(Error, "Unable to load the transcript for this photo.", "OK");
-			}
+			ShowTranscriptOverlay = !ShowTranscriptOverlay;
 		}
 
 		private void OnTranscriptOverlayTapped(object? sender, Microsoft.Maui.Controls.TappedEventArgs e)
 		{
-			TranscriptOverlay.IsVisible = false;
+			ShowTranscriptOverlay = !ShowTranscriptOverlay;
 		}
 
 		private void UpdateControlStates()
@@ -434,56 +416,53 @@ namespace SummerVacation
 			PlayButton.BackgroundColor = playEnabled ? navColor : disabledColor;
 		}
 
-		// Windows Hotkeys Wiring: Left Arrow = Previous, Right Arrow = Next, R = Record, P = Play, S = Select Directory
+		// Windows Hotkeys Wiring: Left Arrow = Previous, Right Arrow = Next, R = Record, P = Play, S = Select Directory, Escape = Toggle Transcript Overlay
 #if WINDOWS
+		private readonly List<Microsoft.UI.Xaml.Input.KeyboardAccelerator> _keyboardAccelerators = [];
+
 		private void OnPageLoaded(object? sender, EventArgs e)
 		{
-			if (Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement frameworkElement)
+			// KeyboardAccelerators are dispatched at the window/XamlRoot level regardless of which element (if any) currently has keyboard focus.
+			// This matters because clicking on non-focusable areas (the photo, borders, background) clears focus from any control,
+			// which would otherwise cause a focus-based KeyDown/PreviewKeyDown handler to stop firing.
+			if (Handler?.PlatformView is Microsoft.UI.Xaml.UIElement rootElement)
 			{
-				frameworkElement.KeyDown += OnWindowsKeyDown;
-				frameworkElement.IsTabStop = true;
-				frameworkElement.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+				AddAccelerator(rootElement, VirtualKey.Left, () => PreviousButton.IsEnabled, () => OnPreviousClicked(this, EventArgs.Empty));
+				AddAccelerator(rootElement, VirtualKey.Right, () => NextButton.IsEnabled, () => OnNextClicked(this, EventArgs.Empty));
+				AddAccelerator(rootElement, VirtualKey.R, () => RecordButton.IsEnabled, () => OnRecordClicked(this, EventArgs.Empty));
+				AddAccelerator(rootElement, VirtualKey.P, () => PlayButton.IsEnabled, () => OnPlayClicked(this, EventArgs.Empty));
+				AddAccelerator(rootElement, VirtualKey.S, () => SelectDirectoryButton.IsEnabled, () => OnSelectDirectoryClicked(this, EventArgs.Empty));
+				AddAccelerator(rootElement, VirtualKey.Escape, () => true, () => ShowTranscriptOverlay = !ShowTranscriptOverlay);
 			}
 		}
 
 		private void OnPageUnloaded(object? sender, EventArgs e)
 		{
-			if (Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement frameworkElement)
+			if (Handler?.PlatformView is Microsoft.UI.Xaml.UIElement rootElement)
 			{
-				frameworkElement.KeyDown -= OnWindowsKeyDown;
+				foreach (var accelerator in _keyboardAccelerators)
+				{
+					rootElement.KeyboardAccelerators.Remove(accelerator);
+				}
 			}
+
+			_keyboardAccelerators.Clear();
 		}
 
-		private void OnWindowsKeyDown(object sender, KeyRoutedEventArgs e)
+		private void AddAccelerator(Microsoft.UI.Xaml.UIElement element, VirtualKey key, Func<bool> canExecute, Action execute)
 		{
-			if (e.Handled)
+			var accelerator = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key = key };
+			accelerator.Invoked += (s, e) =>
 			{
-				return;
-			}
+				if (canExecute())
+				{
+					execute();
+				}
+				e.Handled = true;
+			};
 
-			switch (e.Key)
-			{
-				case VirtualKey.Left when PreviousButton.IsEnabled:
-					OnPreviousClicked(this, EventArgs.Empty);
-					e.Handled = true;
-					break;
-				case VirtualKey.Right when NextButton.IsEnabled:
-					OnNextClicked(this, EventArgs.Empty);
-					e.Handled = true;
-					break;
-				case VirtualKey.R when RecordButton.IsEnabled:
-					OnRecordClicked(this, EventArgs.Empty);
-					e.Handled = true;
-					break;
-				case VirtualKey.P when PlayButton.IsEnabled:
-					OnPlayClicked(this, EventArgs.Empty);
-					e.Handled = true;
-					break;
-				case VirtualKey.S when SelectDirectoryButton.IsEnabled:
-					OnSelectDirectoryClicked(this, EventArgs.Empty);
-					e.Handled = true;
-					break;
-			}
+			element.KeyboardAccelerators.Add(accelerator);
+			_keyboardAccelerators.Add(accelerator);
 		}
 #endif
 	}
