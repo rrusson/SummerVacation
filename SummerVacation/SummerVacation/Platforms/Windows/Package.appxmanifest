@@ -8,7 +8,7 @@
   xmlns:uap18="http://schemas.microsoft.com/appx/manifest/uap/windows10/18"
   IgnorableNamespaces="uap rescap uap3 uap18">
 
-  <Identity Name="r.russonconsulting.SummerVacation" Publisher="CN=D23D0FB7-307F-4B3E-BE69-AA46C6485874" Version="0.1.6.0" />
+  <Identity Name="r.russonconsulting.SummerVacation" Publisher="CN=D23D0FB7-307F-4B3E-BE69-AA46C6485874" Version="0.1.7.0" />
 
   <mp:PhoneIdentity PhoneProductId="897e7426-44bc-4e9f-8679-04e34f967f9f" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 

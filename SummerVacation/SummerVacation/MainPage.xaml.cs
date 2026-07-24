@@ -154,14 +154,46 @@ namespace SummerVacation
 			{
 				PhotoDisplay.Source = ImageSource.FromFile(photoPath);
 				NoPhotoLabel.IsVisible = false;
-				TranscriptOverlay.IsVisible = false;
 				var fileName = Path.GetFileName(photoPath);
 				StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {fileName}";
+				await ShowTranscriptForCurrentPhotoAsync();
 			}
 			catch (Exception ex)
 			{
 				await DisplayAlertAsync(Error, "Failed to load photo: " + ex.Message, "OK");
 				StatusLabel.Text = "Error loading photo";
+			}
+		}
+
+		/// <summary>
+		/// Displays the saved transcript for the current photo, if any exists, and hides the overlay when
+		/// there is no narration text available (e.g. after navigating to a photo with no narration).
+		/// </summary>
+		private async Task ShowTranscriptForCurrentPhotoAsync()
+		{
+			var photoFileName = Path.GetFileName(_photoLibrary.CurrentPhotoPath ?? string.Empty);
+			if (string.IsNullOrWhiteSpace(photoFileName))
+			{
+				TranscriptOverlay.IsVisible = false;
+				return;
+			}
+
+			try
+			{
+				var transcript = await _speechToTextService.GetTranscriptForPhotoAsync(_photoLibrary.GetTranscriptPath(), photoFileName);
+				if (string.IsNullOrWhiteSpace(transcript))
+				{
+					TranscriptOverlay.IsVisible = false;
+				}
+				else
+				{
+					TranscriptLabel.Text = transcript;
+					TranscriptOverlay.IsVisible = true;
+				}
+			}
+			catch (Exception)
+			{
+				TranscriptOverlay.IsVisible = false;
 			}
 		}
 
@@ -225,10 +257,37 @@ namespace SummerVacation
 			try
 			{
 				var narrationPath = _photoLibrary.GetNarrationPath();
+				bool hadExistingNarration = File.Exists(narrationPath);
 
 				// Give the platform some time to fire the final RecognitionResultUpdated event after stopping.
 				await Task.Delay(500).ConfigureAwait(true);
 				string? recognizedText = await _speechToTextService.StopAsync();
+
+				if (string.IsNullOrWhiteSpace(recognizedText))
+				{
+					if (hadExistingNarration)
+					{
+						bool replace = await DisplayAlertAsync(
+							"No Speech Detected",
+							"No words were detected in the recording. Do you want to replace the existing narration with this empty recording?",
+							"Replace",
+							"Keep Existing");
+
+						if (!replace)
+						{
+							await _narrationService.DiscardRecordingAsync();
+							StatusLabel.Text = "Existing narration kept";
+							RecordButton.Text = ReRecordNarrationText;
+							UpdateControlStates();
+							return;
+						}
+					}
+					else
+					{
+						await DisplayAlertAsync("No Speech Detected", "No words were detected in the recording.", "OK");
+					}
+				}
+
 				await _narrationService.StopAndSaveAsync(narrationPath);
 
 				var photoFileName = Path.GetFileName(_photoLibrary.CurrentPhotoPath ?? string.Empty);
@@ -256,6 +315,9 @@ namespace SummerVacation
 
 				StatusLabel.Text = "Recording saved";
 				RecordButton.Text = ReRecordNarrationText;
+
+				// Display the newly captured text immediately, as if the user tapped the photo.
+				await ShowTranscriptForCurrentPhotoAsync();
 			}
 			catch (Exception ex)
 			{

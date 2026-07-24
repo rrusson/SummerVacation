@@ -198,11 +198,9 @@ public class SpeechToTextService : ISpeechToTextService
 
 	private void OnRecognitionResultCompleted(object? sender, SpeechToTextRecognitionResultCompletedEventArgs e)
 	{
-		// NOTE: The platform recognizer can raise this event on its own (e.g. after a brief
-		// silence timeout) well before the user taps "Stop Recording". Do NOT flip _isListening
-		// or unsubscribe here — that state is owned by StartAsync/StopAsync. If we unsubscribe
-		// here, a subsequent auto-restart by the platform (or a delayed final result) would be
-		// missed, and StopAsync would short-circuit without ever calling StopListenAsync,
+		// NOTE: The platform recognizer can raise this event on its own (e.g. after a brief silence timeout) well before the user taps "Stop Recording".
+		// Do NOT flip _isListening or unsubscribe here; that state is owned by StartAsync/StopAsync. If we unsubscribe here, a subsequent auto-restart
+		// by the platform (or a delayed final result) would be missed, and StopAsync would short-circuit without ever calling StopListenAsync,
 		// silently losing any speech captured after this point.
 		if (e.RecognitionResult.IsSuccessful)
 		{
