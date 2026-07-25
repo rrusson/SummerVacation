@@ -74,6 +74,29 @@ public sealed class AudioNarrationService : IDisposable
 	}
 
 	/// <summary>
+	/// Stops the active recording without saving it, discarding the captured audio.
+	/// Use this when the user chooses not to replace an existing narration.
+	/// </summary>
+	public async Task DiscardRecordingAsync()
+	{
+		if (_audioRecorder is null)
+		{
+			IsRecording = false;
+			return;
+		}
+
+		try
+		{
+			await _audioRecorder.StopAsync().ConfigureAwait(true);
+		}
+		finally
+		{
+			_audioRecorder = null;
+			IsRecording = false;
+		}
+	}
+
+	/// <summary>
 	/// Plays the narration at <paramref name="narrationPath"/>.
 	/// Throws <see cref="FileNotFoundException"/> if the file does not exist.
 	/// </summary>

@@ -24,6 +24,11 @@
 			return Task.FromResult<string?>(null);
 		}
 
+		public Task RenamePhotoInTranscriptAsync(string transcriptPath, string oldFileName, string newFileName, CancellationToken cancellationToken = default)
+		{
+			return Task.CompletedTask;
+		}
+
 		protected virtual void Dispose(bool disposing)
 		{
 			if (!_isDisposed)

@@ -1,8 +1,10 @@
 {
   "profiles": {
-    "Windows Machine": {
-      "commandName": "Project",
-      "nativeDebugging": false
+    "SummerVacation": {
+      "commandName": "Project"
+    },
+    "Package MSIX": {
+      "commandName": "MsixPackage"
     }
   }
 }

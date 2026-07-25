@@ -1,5 +1,6 @@
-using CommunityToolkit.Maui.Media;
 using System.Globalization;
+
+using CommunityToolkit.Maui.Media;
 
 namespace SummerVacation.Services;
 
@@ -76,11 +77,24 @@ public class SpeechToTextService : ISpeechToTextService
 			return _currentRecognitionResult;
 		}
 
-		await _speechToText.StopListenAsync(cancellationToken).ConfigureAwait(true);
+		try
+		{
+			// Always attempt to stop, even if the recognizer already auto-completed on its own
+			// (e.g. after a silence timeout). Some platforms throw if StopListenAsync is called
+			// when the recognizer already stopped itself; treat that as a no-op.
+			await _speechToText.StopListenAsync(cancellationToken).ConfigureAwait(true);
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"StopListenAsync threw (recognizer may have already stopped): {ex.Message}");
+		}
+		finally
+		{
+			_speechToText.RecognitionResultUpdated -= OnRecognitionResultUpdated;
+			_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
+			_isListening = false;
+		}
 
-		_speechToText.RecognitionResultUpdated -= OnRecognitionResultUpdated;
-		_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
-		_isListening = false;
 		return _currentRecognitionResult;
 	}
 
@@ -101,6 +115,11 @@ public class SpeechToTextService : ISpeechToTextService
 		IReadOnlyList<string> allPhotoFileNames,
 		CancellationToken cancellationToken = default)
 	{
+		if (string.IsNullOrWhiteSpace(recognizedText))
+		{
+			return;
+		}
+
 		// Load existing entries so other photos' transcriptions are preserved.
 		var entries = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 		string separator = ":\t";
@@ -169,6 +188,46 @@ public class SpeechToTextService : ISpeechToTextService
 		return null;
 	}
 
+	/// <summary>
+	/// Renames the transcript entry key from <paramref name="oldFileName"/> to <paramref name="newFileName"/>, if present.
+	/// </summary>
+	public async Task RenamePhotoInTranscriptAsync(
+		string transcriptPath,
+		string oldFileName,
+		string newFileName,
+		CancellationToken cancellationToken = default)
+	{
+		if (!File.Exists(transcriptPath))
+		{
+			return;
+		}
+
+		string separator = ":\t";
+		var lines = (await File.ReadAllLinesAsync(transcriptPath, cancellationToken)).ToList();
+		bool changed = false;
+
+		for (int i = 0; i < lines.Count; i++)
+		{
+			var separatorIndex = lines[i].IndexOf(separator, StringComparison.Ordinal);
+			if (separatorIndex > 0)
+			{
+				var key = lines[i][..separatorIndex];
+				if (string.Equals(key, oldFileName, StringComparison.OrdinalIgnoreCase))
+				{
+					var value = lines[i][(separatorIndex + separator.Length)..];
+					lines[i] = $"{newFileName}{separator}{value}";
+					changed = true;
+					break;
+				}
+			}
+		}
+
+		if (changed)
+		{
+			await File.WriteAllLinesAsync(transcriptPath, lines, cancellationToken);
+		}
+	}
+
 	private void OnRecognitionResultUpdated(object? sender, SpeechToTextRecognitionResultUpdatedEventArgs e)
 	{
 		if (!string.IsNullOrEmpty(e.RecognitionResult))
@@ -179,13 +238,18 @@ public class SpeechToTextService : ISpeechToTextService
 
 	private void OnRecognitionResultCompleted(object? sender, SpeechToTextRecognitionResultCompletedEventArgs e)
 	{
+		// NOTE: The platform recognizer can raise this event on its own (e.g. after a brief silence timeout) well before the user taps "Stop Recording".
+		// Do NOT flip _isListening or unsubscribe here; that state is owned by StartAsync/StopAsync. If we unsubscribe here, a subsequent auto-restart
+		// by the platform (or a delayed final result) would be missed, and StopAsync would short-circuit without ever calling StopListenAsync,
+		// silently losing any speech captured after this point.
 		if (e.RecognitionResult.IsSuccessful)
 		{
 			_currentRecognitionResult = e.RecognitionResult.Text is null ? _currentRecognitionResult : e.RecognitionResult.Text;
 		}
-
-		_isListening = false;
-		_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
+		else
+		{
+			System.Diagnostics.Debug.WriteLine($"[SpeechToText] Recognition failed: {e.RecognitionResult.Exception?.Message}");
+		}
 	}
 
 	protected virtual void Dispose(bool disposing)

@@ -1,22 +1,52 @@
 ﻿using SummerVacation.Services;
 
+#if WINDOWS
+using Microsoft.UI.Xaml.Input;
+using Windows.System;
+#endif
+
 namespace SummerVacation
 {
 	public partial class MainPage : ContentPage
 	{
 		private const string Error = "Error";
+		private const string SelectDirectoryText = "S̲elect Photo Directory";
+		private const string RecordNarrationText = "R̲ecord Narration";
+		private const string ReRecordNarrationText = "R̲e-record";
+		private const string PlayNarrationText = "P̲lay Narration";
 
 		private readonly PhotoLibrary _photoLibrary;
 		private readonly AudioNarrationService _narrationService;
 		private readonly ISpeechToTextService _speechToTextService;
+		private readonly IPhotoCommentService _photoCommentService;
+		private string _currentFileName;
 
-		public MainPage(PhotoLibrary photoLibrary, AudioNarrationService narrationService, ISpeechToTextService speechToTextService)
+		public bool ShowTranscriptOverlay
+		{
+			get;
+			set
+			{
+				field = value;
+				ShowTranscriptForCurrentPhotoAsync().ConfigureAwait(true);
+			}
+		} = true;
+
+		public MainPage(PhotoLibrary photoLibrary, AudioNarrationService narrationService, ISpeechToTextService speechToTextService, IPhotoCommentService photoCommentService)
 		{
 			InitializeComponent();
+			_currentFileName = string.Empty;
 			_photoLibrary = photoLibrary;
 			_narrationService = narrationService;
 			_speechToTextService = speechToTextService;
+			_photoCommentService = photoCommentService;
 			_narrationService.PlaybackEnded += OnPlaybackEnded;
+			SelectDirectoryButton.Text = SelectDirectoryText;
+			RecordButton.Text = RecordNarrationText;
+			PlayButton.Text = PlayNarrationText;
+#if WINDOWS
+			Loaded += OnPageLoaded;
+			Unloaded += OnPageUnloaded;
+#endif
 			UpdateControlStates();
 		}
 
@@ -128,7 +158,7 @@ namespace SummerVacation
 			{
 				PhotoDisplay.Source = null;
 				NoPhotoLabel.IsVisible = true;
-				StatusLabel.Text = "No photo to display";
+				StatusLabel.Text = "No photos to display";
 				return;
 			}
 
@@ -136,14 +166,37 @@ namespace SummerVacation
 			{
 				PhotoDisplay.Source = ImageSource.FromFile(photoPath);
 				NoPhotoLabel.IsVisible = false;
-				TranscriptOverlay.IsVisible = false;
-				var fileName = Path.GetFileName(photoPath);
-				StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {fileName}";
+				_currentFileName = Path.GetFileName(photoPath);
+				StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {_currentFileName}";
+				await ShowTranscriptForCurrentPhotoAsync();
 			}
 			catch (Exception ex)
 			{
 				await DisplayAlertAsync(Error, "Failed to load photo: " + ex.Message, "OK");
 				StatusLabel.Text = "Error loading photo";
+			}
+		}
+
+		/// <summary>
+		/// Displays the saved transcript for the current photo, if any exists, and hides the overlay when
+		/// there is no narration text available (e.g. after navigating to a photo with no narration) or when overlay is toggled off.
+		/// </summary>
+		private async Task ShowTranscriptForCurrentPhotoAsync()
+		{
+			// Ensure any in-progress edit from a previous photo is discarded when switching photos.
+			TranscriptEditor.IsVisible = false;
+			TranscriptDoneButton.IsVisible = false;
+			TranscriptLabel.IsVisible = true;
+
+			try
+			{
+				var transcript = await _speechToTextService.GetTranscriptForPhotoAsync(_photoLibrary.GetTranscriptPath(), _currentFileName);
+				TranscriptLabel.Text = transcript;
+				TranscriptOverlay.IsVisible = !string.IsNullOrWhiteSpace(transcript) && ShowTranscriptOverlay;
+			}
+			catch (Exception)
+			{
+				TranscriptOverlay.IsVisible = false;
 			}
 		}
 
@@ -184,7 +237,7 @@ namespace SummerVacation
 				}
 
 				StatusLabel.Text = "Recording...";
-				RecordButton.Text = "Stop Recording";
+				RecordButton.Text = "Stop R̲ecording";
 				TranscriptOverlay.IsVisible = false;
 			}
 			catch (UnauthorizedAccessException ex)
@@ -207,24 +260,65 @@ namespace SummerVacation
 			try
 			{
 				var narrationPath = _photoLibrary.GetNarrationPath();
+				bool hadExistingNarration = File.Exists(narrationPath);
 
 				// Give the platform some time to fire the final RecognitionResultUpdated event after stopping.
 				await Task.Delay(500).ConfigureAwait(true);
 				string? recognizedText = await _speechToTextService.StopAsync();
+
+				if (string.IsNullOrWhiteSpace(recognizedText))
+				{
+					if (hadExistingNarration)
+					{
+						bool replace = await DisplayAlertAsync(
+							"No Speech Detected",
+							"No words were detected in the recording. Do you want to replace the existing narration with this empty recording?",
+							"Replace",
+							"Keep Existing");
+
+						if (!replace)
+						{
+							await _narrationService.DiscardRecordingAsync();
+							StatusLabel.Text = "Existing narration kept";
+							RecordButton.Text = ReRecordNarrationText;
+							UpdateControlStates();
+							return;
+						}
+					}
+					else
+					{
+						await DisplayAlertAsync("No Speech Detected", "No words were detected in the recording.", "OK");
+					}
+				}
+
 				await _narrationService.StopAndSaveAsync(narrationPath);
 
-				var photoFileName = Path.GetFileName(_photoLibrary.CurrentPhotoPath ?? string.Empty);
-				if (!string.IsNullOrWhiteSpace(photoFileName))
+				if (!string.IsNullOrWhiteSpace(_currentFileName))
 				{
 					await _speechToTextService.SaveTranscriptAsync(
 						_photoLibrary.GetTranscriptPath(),
-						photoFileName,
+						_currentFileName,
 						recognizedText,
 						_photoLibrary.GetAllPhotoFileNames());
 				}
 
+				try
+				{
+					await _photoCommentService.EmbedCommentAsync(_photoLibrary.CurrentPhotoPath, recognizedText);
+				}
+				catch (Exception ex)
+				{
+					// Embedding the comment is a best-effort enhancement; don't fail the whole save if it doesn't work.
+					System.Diagnostics.Debug.WriteLine($"Failed to embed comment into photo: {ex.Message}");
+				}
+
+				await RenamePhotoFromNarrationIfRequestedAsync(recognizedText);
+
 				StatusLabel.Text = "Recording saved";
-				RecordButton.Text = "Re-record";
+				RecordButton.Text = ReRecordNarrationText;
+
+				// Display the newly captured text immediately, as if the user tapped the photo.
+				await ShowTranscriptForCurrentPhotoAsync();
 			}
 			catch (Exception ex)
 			{
@@ -245,8 +339,8 @@ namespace SummerVacation
 			if (_narrationService.IsPlaying)
 			{
 				_narrationService.StopPlayback();
-				PlayButton.Text = "Play Narration";
-				StatusLabel.Text = "Playback stopped";
+				PlayButton.Text = PlayNarrationText;
+				StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {_currentFileName}";
 				UpdateControlStates();
 				return;
 			}
@@ -254,7 +348,7 @@ namespace SummerVacation
 			try
 			{
 				await _narrationService.PlayAsync(_photoLibrary.GetNarrationPath());
-				PlayButton.Text = "Stop Playback";
+				PlayButton.Text = "Stop P̲layback";
 				StatusLabel.Text = "Playing narration...";
 			}
 			catch (FileNotFoundException)
@@ -264,7 +358,7 @@ namespace SummerVacation
 			catch (Exception ex)
 			{
 				await DisplayAlertAsync(Error, $"Failed to play audio: {ex.Message}", "OK");
-				StatusLabel.Text = "Playback failed";
+				StatusLabel.Text = "Playback failed!";
 			}
 
 			UpdateControlStates();
@@ -274,41 +368,128 @@ namespace SummerVacation
 		{
 			MainThread.BeginInvokeOnMainThread(() =>
 			{
-				PlayButton.Text = "Play Narration";
-				StatusLabel.Text = "Playback finished";
+				PlayButton.Text = PlayNarrationText;
+				StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {_currentFileName}";
 				UpdateControlStates();
 			});
 		}
 
-		private async void OnPhotoTapped(object? sender, TappedEventArgs e)
+		private void OnAutoRenameLabelTapped(object? sender, Microsoft.Maui.Controls.TappedEventArgs e)
 		{
-			if (TranscriptOverlay.IsVisible)
+			AutoRenameCheckBox.IsChecked = !AutoRenameCheckBox.IsChecked;
+		}
+
+		/// <summary>
+		/// If the auto-rename checkbox is checked, renames the current photo file (and keeps the narration
+		/// file and transcript entry in sync) using the first 10 words of <paramref name="narrationText"/>
+		/// </summary>
+		private async Task RenamePhotoFromNarrationIfRequestedAsync(string? narrationText)
+		{
+			if (!AutoRenameCheckBox.IsChecked || string.IsNullOrWhiteSpace(narrationText))
 			{
-				TranscriptOverlay.IsVisible = false;
 				return;
 			}
 
-			var photoFileName = Path.GetFileName(_photoLibrary.CurrentPhotoPath ?? string.Empty);
-			if (string.IsNullOrWhiteSpace(photoFileName))
+			var newBaseName = _photoCommentService.GenerateFileNameFromComment(narrationText);
+			if (string.IsNullOrEmpty(newBaseName))
+			{
+				return;
+			}
+
+			var renameResult = _photoLibrary.RenameCurrentPhoto(newBaseName);
+			if (renameResult is null)
 			{
 				return;
 			}
 
 			try
 			{
-				var transcript = await _speechToTextService.GetTranscriptForPhotoAsync(_photoLibrary.GetTranscriptPath(), photoFileName);
-				TranscriptLabel.Text = transcript ?? "No transcription available for this photo.";
-				TranscriptOverlay.IsVisible = true;
+				await _speechToTextService.RenamePhotoInTranscriptAsync(
+					_photoLibrary.GetTranscriptPath(),
+					renameResult.Value.OldFileName,
+					renameResult.Value.NewFileName);
 			}
-			catch (Exception)
+			catch (Exception ex)
 			{
-				await DisplayAlertAsync(Error, "Unable to load the transcript for this photo.", "OK");
+				System.Diagnostics.Debug.WriteLine($"Failed to update transcript entry after rename: {ex.Message}");
 			}
+
+			_currentFileName = renameResult.Value.NewFileName;
+			PhotoDisplay.Source = ImageSource.FromFile(_photoLibrary.CurrentPhotoPath);
+			StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {_currentFileName}";
 		}
 
-		private void OnTranscriptOverlayTapped(object? sender, TappedEventArgs e)
+		private async void OnPhotoTapped(object? sender, Microsoft.Maui.Controls.TappedEventArgs e)
 		{
-			TranscriptOverlay.IsVisible = false;
+			ShowTranscriptOverlay = !ShowTranscriptOverlay;
+		}
+
+		private void OnTranscriptOverlayTapped(object? sender, Microsoft.Maui.Controls.TappedEventArgs e)
+		{
+			// Ignore taps that landed on the Editor or the Done button; those have their own handlers.
+			if (TranscriptEditor.IsVisible)
+			{
+				return;
+			}
+
+			// Switch the overlay into edit mode: hide the read-only label, show the editable Editor
+			// pre-populated with the current transcript text, and reveal the "Done" button.
+			TranscriptEditor.Text = TranscriptLabel.Text;
+			TranscriptLabel.IsVisible = false;
+			TranscriptEditor.IsVisible = true;
+			TranscriptDoneButton.IsVisible = true;
+			TranscriptEditor.Focus();
+		}
+
+		private async void OnTranscriptEditorCompleted(object? sender, EventArgs e)
+		{
+			// Pressing Enter/Return in the Entry saves the transcript and switches back to display mode, same as clicking the Done button.
+			await SaveTranscriptEditAsync();
+		}
+
+		private async Task SaveTranscriptEditAsync()
+		{
+			string editedText = TranscriptEditor.Text ?? string.Empty;
+
+			// Switch back to read-only display mode immediately for responsiveness.
+			TranscriptLabel.Text = editedText;
+			TranscriptLabel.IsVisible = true;
+			TranscriptEditor.IsVisible = false;
+			TranscriptDoneButton.IsVisible = false;
+			TranscriptOverlay.IsVisible = !string.IsNullOrWhiteSpace(editedText) && ShowTranscriptOverlay;
+
+			if (string.IsNullOrWhiteSpace(_currentFileName))
+			{
+				return;
+			}
+
+			try
+			{
+				await _speechToTextService.SaveTranscriptAsync(
+					_photoLibrary.GetTranscriptPath(),
+					_currentFileName,
+					editedText,
+					_photoLibrary.GetAllPhotoFileNames());
+
+				try
+				{
+					await _photoCommentService.EmbedCommentAsync(_photoLibrary.CurrentPhotoPath, editedText);
+				}
+				catch (Exception ex)
+				{
+					// Embedding the comment is a best-effort enhancement; don't fail the whole save if it doesn't work.
+					System.Diagnostics.Debug.WriteLine($"Failed to embed comment into photo: {ex.Message}");
+				}
+
+				await RenamePhotoFromNarrationIfRequestedAsync(editedText);
+
+				StatusLabel.Text = "Transcript updated";
+			}
+			catch (Exception ex)
+			{
+				await DisplayAlertAsync(Error, $"Failed to save transcript: {ex.Message}", "OK");
+				StatusLabel.Text = "Failed to save transcript";
+			}
 		}
 
 		private void UpdateControlStates()
@@ -333,12 +514,75 @@ namespace SummerVacation
 			if (!isRecording)
 			{
 				RecordButton.BackgroundColor = hasNarration ? Colors.Red : Colors.Green;
-				RecordButton.Text = hasNarration ? "Re-record" : "Record Narration";
+				RecordButton.Text = hasNarration ? ReRecordNarrationText : RecordNarrationText;
 			}
 
 			bool playEnabled = hasPhotos && !isRecording && hasNarration;
 			PlayButton.IsEnabled = playEnabled;
 			PlayButton.BackgroundColor = playEnabled ? navColor : disabledColor;
 		}
+
+		// Windows Hotkeys Wiring: Left Arrow = Previous, Right Arrow = Next, R = Record, P = Play, S = Select Directory, Escape = Toggle Transcript Overlay
+#if WINDOWS
+		private void OnPageLoaded(object? sender, EventArgs e)
+		{
+			if (Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement frameworkElement)
+			{
+				frameworkElement.KeyDown += OnWindowsKeyDown;
+				frameworkElement.IsTabStop = true;
+				frameworkElement.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+			}
+		}
+
+		private void OnPageUnloaded(object? sender, EventArgs e)
+		{
+			if (Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement frameworkElement)
+			{
+				frameworkElement.KeyDown -= OnWindowsKeyDown;
+			}
+		}
+
+		private void OnWindowsKeyDown(object sender, KeyRoutedEventArgs e)
+		{
+			if (e.Handled)
+			{
+				return;
+			}
+
+			// Don't intercept keystrokes as app hotkeys while the user is typing in the transcript editor.
+			if (TranscriptEditor.IsFocused)
+			{
+				return;
+			}
+
+			switch (e.Key)
+			{
+				case VirtualKey.Left when PreviousButton.IsEnabled:
+					OnPreviousClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.Right when NextButton.IsEnabled:
+					OnNextClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.R when RecordButton.IsEnabled:
+					OnRecordClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.P when PlayButton.IsEnabled:
+					OnPlayClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.S when SelectDirectoryButton.IsEnabled:
+					OnSelectDirectoryClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.Escape:
+					ShowTranscriptOverlay = !ShowTranscriptOverlay;
+					e.Handled = true;
+					break;
+			}
+		}
+#endif
 	}
 }
