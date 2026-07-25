@@ -75,4 +75,28 @@ public sealed class PhotoCommentService : IPhotoCommentService
 
 		return true;
 	}
+
+	/// <inheritdoc/>
+	public string? GenerateFileNameFromComment(string? comment, int wordCount = 10)
+	{
+		if (string.IsNullOrWhiteSpace(comment))
+		{
+			return null;
+		}
+
+		var words = comment
+			.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+			.Take(wordCount)
+			.Select(word => new string(word.Where(char.IsLetterOrDigit).ToArray()))
+			.Where(word => word.Length > 0)
+			.Select(word => char.ToUpperInvariant(word[0]) + word[1..])
+			.ToArray();
+
+		if (words.Length == 0)
+		{
+			return null;
+		}
+
+		return string.Concat(words);
+	}
 }

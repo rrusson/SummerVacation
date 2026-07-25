@@ -10,5 +10,8 @@
 		Task<bool> StartAsync(CancellationToken cancellationToken = default);
 
 		Task<string?> StopAsync(CancellationToken cancellationToken = default);
+
+		/// <summary>Renames the transcript entry key from <paramref name="oldFileName"/> to <paramref name="newFileName"/>, if present.</summary>
+		Task RenamePhotoInTranscriptAsync(string transcriptPath, string oldFileName, string newFileName, CancellationToken cancellationToken = default);
 	}
 }

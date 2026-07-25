@@ -88,6 +88,59 @@ public sealed class PhotoLibrary
 	}
 
 	/// <summary>
+	/// Renames the current photo file (and its narration file, if any) to use <paramref name="newBaseName"/>
+	/// while preserving the original extension. If a file with the target name already exists, a numeric
+	/// suffix is appended to avoid overwriting it. Returns the old and new file names (without directory)
+	/// so callers can keep the transcript file in sync, or <see langword="null"/> if the rename could not
+	/// be performed (no current photo, empty name, platform can't write to the directory, or name unchanged).
+	/// </summary>
+	public (string OldFileName, string NewFileName)? RenameCurrentPhoto(string newBaseName)
+	{
+		var photoPath = CurrentPhotoPath;
+		if (photoPath is null || string.IsNullOrWhiteSpace(newBaseName) || !CanWriteToPhotoDirectory)
+		{
+			return null;
+		}
+
+		var directory = Path.GetDirectoryName(photoPath)!;
+		var extension = Path.GetExtension(photoPath);
+		var oldFileName = Path.GetFileName(photoPath);
+
+		var newFileName = newBaseName + extension;
+		if (string.Equals(newFileName, oldFileName, StringComparison.OrdinalIgnoreCase))
+		{
+			return null;
+		}
+
+		var newPath = Path.Combine(directory, newFileName);
+
+		// Avoid collisions with an existing file by appending a numeric suffix.
+		int suffix = 1;
+		while (File.Exists(newPath))
+		{
+			newFileName = $"{newBaseName}{suffix}{extension}";
+			newPath = Path.Combine(directory, newFileName);
+			suffix++;
+		}
+
+		File.Move(photoPath, newPath);
+		_photoFiles[CurrentPhotoIndex] = newPath;
+
+		// Keep the narration file matched with its photo by renaming it too, if one exists.
+		var oldNarrationPath = Path.Combine(directory, Path.ChangeExtension(oldFileName, ".mp3"));
+		if (File.Exists(oldNarrationPath))
+		{
+			var newNarrationPath = Path.Combine(directory, Path.ChangeExtension(newFileName, ".mp3"));
+			if (!File.Exists(newNarrationPath))
+			{
+				File.Move(oldNarrationPath, newNarrationPath);
+			}
+		}
+
+		return (oldFileName, newFileName);
+	}
+
+	/// <summary>
 	/// Returns the file system path of the narration transcript file for the current photo directory,
 	/// or an empty string if no directory is loaded.
 	/// </summary>

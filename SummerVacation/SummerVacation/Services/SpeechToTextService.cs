@@ -188,6 +188,46 @@ public class SpeechToTextService : ISpeechToTextService
 		return null;
 	}
 
+	/// <summary>
+	/// Renames the transcript entry key from <paramref name="oldFileName"/> to <paramref name="newFileName"/>, if present.
+	/// </summary>
+	public async Task RenamePhotoInTranscriptAsync(
+		string transcriptPath,
+		string oldFileName,
+		string newFileName,
+		CancellationToken cancellationToken = default)
+	{
+		if (!File.Exists(transcriptPath))
+		{
+			return;
+		}
+
+		string separator = ":\t";
+		var lines = (await File.ReadAllLinesAsync(transcriptPath, cancellationToken)).ToList();
+		bool changed = false;
+
+		for (int i = 0; i < lines.Count; i++)
+		{
+			var separatorIndex = lines[i].IndexOf(separator, StringComparison.Ordinal);
+			if (separatorIndex > 0)
+			{
+				var key = lines[i][..separatorIndex];
+				if (string.Equals(key, oldFileName, StringComparison.OrdinalIgnoreCase))
+				{
+					var value = lines[i][(separatorIndex + separator.Length)..];
+					lines[i] = $"{newFileName}{separator}{value}";
+					changed = true;
+					break;
+				}
+			}
+		}
+
+		if (changed)
+		{
+			await File.WriteAllLinesAsync(transcriptPath, lines, cancellationToken);
+		}
+	}
+
 	private void OnRecognitionResultUpdated(object? sender, SpeechToTextRecognitionResultUpdatedEventArgs e)
 	{
 		if (!string.IsNullOrEmpty(e.RecognitionResult))

@@ -19,6 +19,7 @@ namespace SummerVacation
 		private readonly AudioNarrationService _narrationService;
 		private readonly ISpeechToTextService _speechToTextService;
 		private readonly IPhotoCommentService _photoCommentService;
+		private string _currentFileName;
 
 		public bool ShowTranscriptOverlay
 		{
@@ -156,7 +157,7 @@ namespace SummerVacation
 			{
 				PhotoDisplay.Source = null;
 				NoPhotoLabel.IsVisible = true;
-				StatusLabel.Text = "No photo to display";
+				StatusLabel.Text = "No photos to display";
 				return;
 			}
 
@@ -164,8 +165,8 @@ namespace SummerVacation
 			{
 				PhotoDisplay.Source = ImageSource.FromFile(photoPath);
 				NoPhotoLabel.IsVisible = false;
-				var fileName = Path.GetFileName(photoPath);
-				StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {fileName}";
+				_currentFileName = Path.GetFileName(photoPath);
+				StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {_currentFileName}";
 				await ShowTranscriptForCurrentPhotoAsync();
 			}
 			catch (Exception ex)
@@ -186,16 +187,9 @@ namespace SummerVacation
 			TranscriptDoneButton.IsVisible = false;
 			TranscriptLabel.IsVisible = true;
 
-			var photoFileName = Path.GetFileName(_photoLibrary.CurrentPhotoPath ?? string.Empty);
-			if (string.IsNullOrWhiteSpace(photoFileName))
-			{
-				TranscriptOverlay.IsVisible = false;
-				return;
-			}
-
 			try
 			{
-				var transcript = await _speechToTextService.GetTranscriptForPhotoAsync(_photoLibrary.GetTranscriptPath(), photoFileName);
+				var transcript = await _speechToTextService.GetTranscriptForPhotoAsync(_photoLibrary.GetTranscriptPath(), _currentFileName);
 				TranscriptLabel.Text = transcript;
 				TranscriptOverlay.IsVisible = !string.IsNullOrWhiteSpace(transcript) && ShowTranscriptOverlay;
 			}
@@ -298,28 +292,26 @@ namespace SummerVacation
 
 				await _narrationService.StopAndSaveAsync(narrationPath);
 
-				var photoFileName = Path.GetFileName(_photoLibrary.CurrentPhotoPath ?? string.Empty);
-				if (!string.IsNullOrWhiteSpace(photoFileName))
+				if (!string.IsNullOrWhiteSpace(_currentFileName))
 				{
 					await _speechToTextService.SaveTranscriptAsync(
 						_photoLibrary.GetTranscriptPath(),
-						photoFileName,
+						_currentFileName,
 						recognizedText,
 						_photoLibrary.GetAllPhotoFileNames());
 				}
 
-				if (_photoLibrary.CurrentPhotoPath is string currentPhotoPath)
+				try
 				{
-					try
-					{
-						await _photoCommentService.EmbedCommentAsync(currentPhotoPath, recognizedText);
-					}
-					catch (Exception ex)
-					{
-						// Embedding the comment is a best-effort enhancement; don't fail the whole save if it doesn't work.
-						System.Diagnostics.Debug.WriteLine($"Failed to embed comment into photo: {ex.Message}");
-					}
+					await _photoCommentService.EmbedCommentAsync(_photoLibrary.CurrentPhotoPath, recognizedText);
 				}
+				catch (Exception ex)
+				{
+					// Embedding the comment is a best-effort enhancement; don't fail the whole save if it doesn't work.
+					System.Diagnostics.Debug.WriteLine($"Failed to embed comment into photo: {ex.Message}");
+				}
+
+				await RenamePhotoFromNarrationIfRequestedAsync(recognizedText);
 
 				StatusLabel.Text = "Recording saved";
 				RecordButton.Text = ReRecordNarrationText;
@@ -347,7 +339,7 @@ namespace SummerVacation
 			{
 				_narrationService.StopPlayback();
 				PlayButton.Text = PlayNarrationText;
-				StatusLabel.Text = "Playback stopped";
+				StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {_currentFileName}";
 				UpdateControlStates();
 				return;
 			}
@@ -365,7 +357,7 @@ namespace SummerVacation
 			catch (Exception ex)
 			{
 				await DisplayAlertAsync(Error, $"Failed to play audio: {ex.Message}", "OK");
-				StatusLabel.Text = "Playback failed";
+				StatusLabel.Text = "Playback failed!";
 			}
 
 			UpdateControlStates();
@@ -376,9 +368,54 @@ namespace SummerVacation
 			MainThread.BeginInvokeOnMainThread(() =>
 			{
 				PlayButton.Text = PlayNarrationText;
-				StatusLabel.Text = "Playback finished";
+				StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {_currentFileName}";
 				UpdateControlStates();
 			});
+		}
+
+		private void OnAutoRenameLabelTapped(object? sender, Microsoft.Maui.Controls.TappedEventArgs e)
+		{
+			AutoRenameCheckBox.IsChecked = !AutoRenameCheckBox.IsChecked;
+		}
+
+		/// <summary>
+		/// If the auto-rename checkbox is checked, renames the current photo file (and keeps the narration
+		/// file and transcript entry in sync) using the first 10 words of <paramref name="narrationText"/>
+		/// </summary>
+		private async Task RenamePhotoFromNarrationIfRequestedAsync(string? narrationText)
+		{
+			if (!AutoRenameCheckBox.IsChecked || string.IsNullOrWhiteSpace(narrationText))
+			{
+				return;
+			}
+
+			var newBaseName = _photoCommentService.GenerateFileNameFromComment(narrationText);
+			if (string.IsNullOrEmpty(newBaseName))
+			{
+				return;
+			}
+
+			var renameResult = _photoLibrary.RenameCurrentPhoto(newBaseName);
+			if (renameResult is null)
+			{
+				return;
+			}
+
+			try
+			{
+				await _speechToTextService.RenamePhotoInTranscriptAsync(
+					_photoLibrary.GetTranscriptPath(),
+					renameResult.Value.OldFileName,
+					renameResult.Value.NewFileName);
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"Failed to update transcript entry after rename: {ex.Message}");
+			}
+
+			_currentFileName = renameResult.Value.NewFileName;
+			PhotoDisplay.Source = ImageSource.FromFile(_photoLibrary.CurrentPhotoPath);
+			StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {_currentFileName}";
 		}
 
 		private async void OnPhotoTapped(object? sender, Microsoft.Maui.Controls.TappedEventArgs e)
@@ -420,8 +457,7 @@ namespace SummerVacation
 			TranscriptDoneButton.IsVisible = false;
 			TranscriptOverlay.IsVisible = !string.IsNullOrWhiteSpace(editedText) && ShowTranscriptOverlay;
 
-			var photoFileName = Path.GetFileName(_photoLibrary.CurrentPhotoPath ?? string.Empty);
-			if (string.IsNullOrWhiteSpace(photoFileName))
+			if (string.IsNullOrWhiteSpace(_currentFileName))
 			{
 				return;
 			}
@@ -430,22 +466,21 @@ namespace SummerVacation
 			{
 				await _speechToTextService.SaveTranscriptAsync(
 					_photoLibrary.GetTranscriptPath(),
-					photoFileName,
+					_currentFileName,
 					editedText,
 					_photoLibrary.GetAllPhotoFileNames());
 
-				if (_photoLibrary.CurrentPhotoPath is string currentPhotoPath)
+				try
 				{
-					try
-					{
-						await _photoCommentService.EmbedCommentAsync(currentPhotoPath, editedText);
-					}
-					catch (Exception ex)
-					{
-						// Embedding the comment is a best-effort enhancement; don't fail the whole save if it doesn't work.
-						System.Diagnostics.Debug.WriteLine($"Failed to embed comment into photo: {ex.Message}");
-					}
+					await _photoCommentService.EmbedCommentAsync(_photoLibrary.CurrentPhotoPath, editedText);
 				}
+				catch (Exception ex)
+				{
+					// Embedding the comment is a best-effort enhancement; don't fail the whole save if it doesn't work.
+					System.Diagnostics.Debug.WriteLine($"Failed to embed comment into photo: {ex.Message}");
+				}
+
+				await RenamePhotoFromNarrationIfRequestedAsync(editedText);
 
 				StatusLabel.Text = "Transcript updated";
 			}
@@ -463,7 +498,7 @@ namespace SummerVacation
 			bool isPlaying = _narrationService.IsPlaying;
 			bool hasNarration = hasPhotos && File.Exists(_photoLibrary.GetNarrationPath());
 
-			var navColor = (Color)Microsoft.Maui.Controls.Application.Current!.Resources["NavigationBarColor"];
+			var navColor = (Color)Application.Current!.Resources["NavigationBarColor"];
 			var disabledColor = Colors.Gray;
 
 			bool prevEnabled = hasPhotos && _photoLibrary.CurrentPhotoIndex > 0 && !isRecording && !isPlaying;

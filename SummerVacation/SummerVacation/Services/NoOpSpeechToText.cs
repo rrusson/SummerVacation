@@ -7,7 +7,7 @@ namespace SummerVacation.Services;
 /// where speech recognition is not available (e.g. Android emulators).
 /// All operations complete successfully without performing any recognition.
 /// </summary>
-internal sealed class NullSpeechToText : ISpeechToText
+internal sealed class NoOpSpeechToText : ISpeechToText
 {
 	public event EventHandler<SpeechToTextRecognitionResultUpdatedEventArgs>? RecognitionResultUpdated
 	{

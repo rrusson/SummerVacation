@@ -38,7 +38,7 @@ namespace SummerVacation
 			}
 			else
 			{
-				builder.Services.AddSingleton<ISpeechToText>(new Services.NullSpeechToText());
+				builder.Services.AddSingleton<ISpeechToText>(new Services.NoOpSpeechToText());
 				builder.Services.AddTransient<ISpeechToTextService, MockSpeechToTextService>();
 			}
 #else

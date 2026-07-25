@@ -4,12 +4,12 @@
              x:Class="SummerVacation.MainPage"
              BackgroundColor="{StaticResource AppBackgroundColor}">
 
-    <Grid RowDefinitions="Auto,*,Auto,Auto"
+	<Grid RowDefinitions="Auto,*,Auto,Auto"
           ColumnDefinitions="*"
           Padding="{StaticResource PageMargin}">
-        
-        <!-- Header with title -->
-        <Label Grid.Row="0"
+
+		<!-- Header with title -->
+		<Label Grid.Row="0"
                Text="Photo Narrator"
                SemanticProperties.HeadingLevel="Level1"
                FontSize="24"
@@ -17,52 +17,52 @@
                HorizontalOptions="Center"
                Margin="0,0,0,10"/>
 
-        <!-- Main content area with image -->
-        <Border Grid.Row="1"
+		<!-- Main content area with image -->
+		<Border Grid.Row="1"
                 Stroke="{AppThemeBinding Light={StaticResource Gray300}, Dark={StaticResource Gray600}}"
                 StrokeThickness="1"
                 Margin="0,0,0,10">
-            <Grid>
-                <Image x:Name="PhotoDisplay"
+			<Grid>
+				<Image x:Name="PhotoDisplay"
                        Aspect="AspectFit"
                        SemanticProperties.Description="Current photo display"
                        HorizontalOptions="Fill"
                        VerticalOptions="Fill">
-                    <Image.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnPhotoTapped"/>
-                    </Image.GestureRecognizers>
-                </Image>
+					<Image.GestureRecognizers>
+						<TapGestureRecognizer Tapped="OnPhotoTapped"/>
+					</Image.GestureRecognizers>
+				</Image>
 
-                <!-- Placeholder text when no image is loaded -->
-                <Label x:Name="NoPhotoLabel"
+				<!-- Placeholder text when no image is loaded -->
+				<Label x:Name="NoPhotoLabel"
                        Text="Select a photo directory to begin"
                        HorizontalOptions="Center"
                        VerticalOptions="Center"
                        TextColor="{StaticResource Gray300}"
                        IsVisible="True"/>
 
-                <!-- Transcript overlay shown on tap -->
-                <Border x:Name="TranscriptOverlay"
+				<!-- Transcript overlay shown on tap -->
+				<Border x:Name="TranscriptOverlay"
                         IsVisible="False"
                         BackgroundColor="#CC000000"
                         StrokeThickness="0"
                         Padding="12"
                         VerticalOptions="End"
                         HorizontalOptions="Fill">
-                    <Grid RowDefinitions="Auto" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                        <Label x:Name="TranscriptLabel"
+					<Grid RowDefinitions="Auto" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+						<Label x:Name="TranscriptLabel"
                                Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
                                Text=""
                                TextColor="White"
                                FontSize="14"
                                HorizontalOptions="Fill"
                                HorizontalTextAlignment="Start">
-                            <Label.GestureRecognizers>
-                                <TapGestureRecognizer Tapped="OnTranscriptOverlayTapped"/>
-                            </Label.GestureRecognizers>
-                        </Label>
+							<Label.GestureRecognizers>
+								<TapGestureRecognizer Tapped="OnTranscriptOverlayTapped"/>
+							</Label.GestureRecognizers>
+						</Label>
 
-                        <Entry x:Name="TranscriptEditor"
+						<Entry x:Name="TranscriptEditor"
                                Grid.Row="0" Grid.Column="0"
                                Text=""
                                TextColor="White"
@@ -72,7 +72,7 @@
                                Completed="OnTranscriptEditorCompleted"
                                IsVisible="False"/>
 
-                        <Button x:Name="TranscriptDoneButton"
+						<Button x:Name="TranscriptDoneButton"
                                 Grid.Row="0" Grid.Column="1"
                                 Text="Done"
                                 SemanticProperties.Hint="Save the edited transcript text"
@@ -81,73 +81,93 @@
                                 HorizontalOptions="End"
                                 BackgroundColor="{StaticResource NavigationBarColor}"
                                 TextColor="{StaticResource NavigationBarTextColor}"/>
-                    </Grid>
-                </Border>
-            </Grid>
-        </Border>
+					</Grid>
+				</Border>
+			</Grid>
+		</Border>
 
-        <!-- Controls section -->
-        <VerticalStackLayout Grid.Row="2" Spacing="10">
-            <!-- Directory selection -->
-            <Button x:Name="SelectDirectoryButton"
-                    Text="S̲elect Photo Directory"
-                    SemanticProperties.Hint="Choose directory containing photos. Keyboard shortcut: S"
-                    Clicked="OnSelectDirectoryClicked"
-                    HorizontalOptions="Center"
-                    BackgroundColor="{StaticResource NavigationBarColor}"
-                    TextColor="{StaticResource NavigationBarTextColor}"/>
-            
-            <!-- Navigation buttons -->
-            <HorizontalStackLayout HorizontalOptions="Center" Spacing="20">
-                <Button x:Name="PreviousButton"
-                        Text="&lt; Previous"
-                        SemanticProperties.Hint="Go to previous photo. Keyboard shortcut: Left Arrow"
-                        Clicked="OnPreviousClicked"
-                        HorizontalOptions="Center"
-                        BackgroundColor="{StaticResource NavigationBarColor}"
-                        TextColor="{StaticResource NavigationBarTextColor}"/>
-                
-                <Button x:Name="NextButton"
-                        Text="Next &gt;"
-                        SemanticProperties.Hint="Go to next photo. Keyboard shortcut: Right Arrow"
-                        Clicked="OnNextClicked"
-                        HorizontalOptions="Center"
-                        BackgroundColor="{StaticResource NavigationBarColor}"
-                        TextColor="{StaticResource NavigationBarTextColor}"/>
-            </HorizontalStackLayout>
-
-            <!-- Recording controls -->
-            <HorizontalStackLayout HorizontalOptions="Center" Spacing="20">
-                <Button x:Name="RecordButton"
+		<!-- Controls section -->
+		<VerticalStackLayout Grid.Row="2" Spacing="10">
+			<!-- Recording controls, directory selection, and auto-rename checkbox, all on one centered row -->
+			<HorizontalStackLayout HorizontalOptions="Center" Spacing="20">
+				<Button x:Name="RecordButton"
                         Text="R̲ecord Narration"
                         SemanticProperties.Hint="Record audio narration for current photo. Keyboard shortcut: R"
                         Clicked="OnRecordClicked"
                         BackgroundColor="Green"
                         TextColor="White"
                         HorizontalOptions="Center" />
-                
-                <Button x:Name="PlayButton"
+
+				<Button x:Name="SelectDirectoryButton"
+                        Text="S̲elect Photo Directory"
+                        SemanticProperties.Hint="Choose directory containing photos. Keyboard shortcut: S"
+                        Clicked="OnSelectDirectoryClicked"
+                        HorizontalOptions="Center"
+                        BackgroundColor="{StaticResource NavigationBarColor}"
+                        TextColor="{StaticResource NavigationBarTextColor}"/>
+
+				<Button x:Name="PlayButton"
                         Text="P̲lay Narration"
                         SemanticProperties.Hint="Play recorded narration for current photo. Keyboard shortcut: P"
                         Clicked="OnPlayClicked"
                         BackgroundColor="{StaticResource NavigationBarColor}"
                         TextColor="{StaticResource NavigationBarTextColor}"
                         HorizontalOptions="Center" />
-            </HorizontalStackLayout>
-        </VerticalStackLayout>
+			</HorizontalStackLayout>
 
-        <!-- Status and directory path -->
-        <VerticalStackLayout Grid.Row="3" Spacing="5" Margin="0,10,0,0">
-            <Label x:Name="StatusLabel"
+			<!-- Navigation buttons -->
+			<HorizontalStackLayout HorizontalOptions="Center" Spacing="20">
+				<Button x:Name="PreviousButton"
+                        Text="&lt; Previous"
+                        SemanticProperties.Hint="Go to previous photo. Keyboard shortcut: Left Arrow"
+                        Clicked="OnPreviousClicked"
+                        HorizontalOptions="Center"
+                        BackgroundColor="{StaticResource NavigationBarColor}"
+                        TextColor="{StaticResource NavigationBarTextColor}"/>
+
+				<Button x:Name="NextButton"
+                        Text="Next &gt;"
+                        SemanticProperties.Hint="Go to next photo. Keyboard shortcut: Right Arrow"
+                        Clicked="OnNextClicked"
+                        HorizontalOptions="Center"
+                        BackgroundColor="{StaticResource NavigationBarColor}"
+                        TextColor="{StaticResource NavigationBarTextColor}"/>
+
+				<HorizontalStackLayout Spacing="2" VerticalOptions="Center" Margin="-15,0,0,0">
+					<Border StrokeThickness="0"
+                            Padding="0"
+                            VerticalOptions="Center"
+                            HeightRequest="30"
+                            WidthRequest="30">
+						<CheckBox x:Name="AutoRenameCheckBox"
+                                  Color="{StaticResource NavigationBarColor}"
+                                  VerticalOptions="Center"
+                                  HorizontalOptions="Center"
+                                  SemanticProperties.Description="Automatically rename photo from narration"/>
+					</Border>
+					<Label Text="Rename photo from narration"
+                           VerticalOptions="Center"
+                           TextColor="{StaticResource NormalTextColor}">
+						<Label.GestureRecognizers>
+							<TapGestureRecognizer Tapped="OnAutoRenameLabelTapped"/>
+						</Label.GestureRecognizers>
+					</Label>
+				</HorizontalStackLayout>
+			</HorizontalStackLayout>
+		</VerticalStackLayout>
+
+		<!-- Status and directory path -->
+		<VerticalStackLayout Grid.Row="3" Spacing="5" Margin="0,10,0,0">
+			<Label x:Name="StatusLabel"
                    Text="Ready"
                    HorizontalOptions="Center"
                    TextColor="{StaticResource NormalTextColor}"/>
-            <Label x:Name="DirectoryPathLabel"
+			<Label x:Name="DirectoryPathLabel"
                    Text="No directory selected"
                    HorizontalOptions="Center"
                    FontSize="12"
                    TextColor="{StaticResource Gray300}"/>
-        </VerticalStackLayout>
-    </Grid>
+		</VerticalStackLayout>
+	</Grid>
 
 </ContentPage>
