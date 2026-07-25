@@ -181,6 +181,11 @@ namespace SummerVacation
 		/// </summary>
 		private async Task ShowTranscriptForCurrentPhotoAsync()
 		{
+			// Ensure any in-progress edit from a previous photo is discarded when switching photos.
+			TranscriptEditor.IsVisible = false;
+			TranscriptDoneButton.IsVisible = false;
+			TranscriptLabel.IsVisible = true;
+
 			var photoFileName = Path.GetFileName(_photoLibrary.CurrentPhotoPath ?? string.Empty);
 			if (string.IsNullOrWhiteSpace(photoFileName))
 			{
@@ -383,7 +388,72 @@ namespace SummerVacation
 
 		private void OnTranscriptOverlayTapped(object? sender, Microsoft.Maui.Controls.TappedEventArgs e)
 		{
-			ShowTranscriptOverlay = !ShowTranscriptOverlay;
+			// Ignore taps that landed on the Editor or the Done button; those have their own handlers.
+			if (TranscriptEditor.IsVisible)
+			{
+				return;
+			}
+
+			// Switch the overlay into edit mode: hide the read-only label, show the editable Editor
+			// pre-populated with the current transcript text, and reveal the "Done" button.
+			TranscriptEditor.Text = TranscriptLabel.Text;
+			TranscriptLabel.IsVisible = false;
+			TranscriptEditor.IsVisible = true;
+			TranscriptDoneButton.IsVisible = true;
+			TranscriptEditor.Focus();
+		}
+
+		private async void OnTranscriptEditorCompleted(object? sender, EventArgs e)
+		{
+			// Pressing Enter/Return in the Entry saves the transcript and switches back to display mode, same as clicking the Done button.
+			await SaveTranscriptEditAsync();
+		}
+
+		private async Task SaveTranscriptEditAsync()
+		{
+			string editedText = TranscriptEditor.Text ?? string.Empty;
+
+			// Switch back to read-only display mode immediately for responsiveness.
+			TranscriptLabel.Text = editedText;
+			TranscriptLabel.IsVisible = true;
+			TranscriptEditor.IsVisible = false;
+			TranscriptDoneButton.IsVisible = false;
+			TranscriptOverlay.IsVisible = !string.IsNullOrWhiteSpace(editedText) && ShowTranscriptOverlay;
+
+			var photoFileName = Path.GetFileName(_photoLibrary.CurrentPhotoPath ?? string.Empty);
+			if (string.IsNullOrWhiteSpace(photoFileName))
+			{
+				return;
+			}
+
+			try
+			{
+				await _speechToTextService.SaveTranscriptAsync(
+					_photoLibrary.GetTranscriptPath(),
+					photoFileName,
+					editedText,
+					_photoLibrary.GetAllPhotoFileNames());
+
+				if (_photoLibrary.CurrentPhotoPath is string currentPhotoPath)
+				{
+					try
+					{
+						await _photoCommentService.EmbedCommentAsync(currentPhotoPath, editedText);
+					}
+					catch (Exception ex)
+					{
+						// Embedding the comment is a best-effort enhancement; don't fail the whole save if it doesn't work.
+						System.Diagnostics.Debug.WriteLine($"Failed to embed comment into photo: {ex.Message}");
+					}
+				}
+
+				StatusLabel.Text = "Transcript updated";
+			}
+			catch (Exception ex)
+			{
+				await DisplayAlertAsync(Error, $"Failed to save transcript: {ex.Message}", "OK");
+				StatusLabel.Text = "Failed to save transcript";
+			}
 		}
 
 		private void UpdateControlStates()
@@ -418,51 +488,64 @@ namespace SummerVacation
 
 		// Windows Hotkeys Wiring: Left Arrow = Previous, Right Arrow = Next, R = Record, P = Play, S = Select Directory, Escape = Toggle Transcript Overlay
 #if WINDOWS
-		private readonly List<Microsoft.UI.Xaml.Input.KeyboardAccelerator> _keyboardAccelerators = [];
-
 		private void OnPageLoaded(object? sender, EventArgs e)
 		{
-			// KeyboardAccelerators are dispatched at the window/XamlRoot level regardless of which element (if any) currently has keyboard focus.
-			// This matters because clicking on non-focusable areas (the photo, borders, background) clears focus from any control,
-			// which would otherwise cause a focus-based KeyDown/PreviewKeyDown handler to stop firing.
-			if (Handler?.PlatformView is Microsoft.UI.Xaml.UIElement rootElement)
+			if (Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement frameworkElement)
 			{
-				AddAccelerator(rootElement, VirtualKey.Left, () => PreviousButton.IsEnabled, () => OnPreviousClicked(this, EventArgs.Empty));
-				AddAccelerator(rootElement, VirtualKey.Right, () => NextButton.IsEnabled, () => OnNextClicked(this, EventArgs.Empty));
-				AddAccelerator(rootElement, VirtualKey.R, () => RecordButton.IsEnabled, () => OnRecordClicked(this, EventArgs.Empty));
-				AddAccelerator(rootElement, VirtualKey.P, () => PlayButton.IsEnabled, () => OnPlayClicked(this, EventArgs.Empty));
-				AddAccelerator(rootElement, VirtualKey.S, () => SelectDirectoryButton.IsEnabled, () => OnSelectDirectoryClicked(this, EventArgs.Empty));
-				AddAccelerator(rootElement, VirtualKey.Escape, () => true, () => ShowTranscriptOverlay = !ShowTranscriptOverlay);
+				frameworkElement.KeyDown += OnWindowsKeyDown;
+				frameworkElement.IsTabStop = true;
+				frameworkElement.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
 			}
 		}
 
 		private void OnPageUnloaded(object? sender, EventArgs e)
 		{
-			if (Handler?.PlatformView is Microsoft.UI.Xaml.UIElement rootElement)
+			if (Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement frameworkElement)
 			{
-				foreach (var accelerator in _keyboardAccelerators)
-				{
-					rootElement.KeyboardAccelerators.Remove(accelerator);
-				}
+				frameworkElement.KeyDown -= OnWindowsKeyDown;
 			}
-
-			_keyboardAccelerators.Clear();
 		}
 
-		private void AddAccelerator(Microsoft.UI.Xaml.UIElement element, VirtualKey key, Func<bool> canExecute, Action execute)
+		private void OnWindowsKeyDown(object sender, KeyRoutedEventArgs e)
 		{
-			var accelerator = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key = key };
-			accelerator.Invoked += (s, e) =>
+			if (e.Handled)
 			{
-				if (canExecute())
-				{
-					execute();
-				}
-				e.Handled = true;
-			};
+				return;
+			}
 
-			element.KeyboardAccelerators.Add(accelerator);
-			_keyboardAccelerators.Add(accelerator);
+			// Don't intercept keystrokes as app hotkeys while the user is typing in the transcript editor.
+			if (TranscriptEditor.IsFocused)
+			{
+				return;
+			}
+
+			switch (e.Key)
+			{
+				case VirtualKey.Left when PreviousButton.IsEnabled:
+					OnPreviousClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.Right when NextButton.IsEnabled:
+					OnNextClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.R when RecordButton.IsEnabled:
+					OnRecordClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.P when PlayButton.IsEnabled:
+					OnPlayClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.S when SelectDirectoryButton.IsEnabled:
+					OnSelectDirectoryClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.Escape:
+					ShowTranscriptOverlay = !ShowTranscriptOverlay;
+					e.Handled = true;
+					break;
+			}
 		}
 #endif
 	}

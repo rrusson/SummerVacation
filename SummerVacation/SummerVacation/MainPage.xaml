@@ -49,15 +49,39 @@
                         Padding="12"
                         VerticalOptions="End"
                         HorizontalOptions="Fill">
-                    <Border.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnTranscriptOverlayTapped"/>
-                    </Border.GestureRecognizers>
-                    <Label x:Name="TranscriptLabel"
-                           Text=""
-                           TextColor="White"
-                           FontSize="14"
-                           HorizontalOptions="Fill"
-                           HorizontalTextAlignment="Start"/>
+                    <Grid RowDefinitions="Auto" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <Label x:Name="TranscriptLabel"
+                               Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
+                               Text=""
+                               TextColor="White"
+                               FontSize="14"
+                               HorizontalOptions="Fill"
+                               HorizontalTextAlignment="Start">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnTranscriptOverlayTapped"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+
+                        <Entry x:Name="TranscriptEditor"
+                               Grid.Row="0" Grid.Column="0"
+                               Text=""
+                               TextColor="White"
+                               FontSize="14"
+                               Background="Transparent"
+                               ReturnType="Done"
+                               Completed="OnTranscriptEditorCompleted"
+                               IsVisible="False"/>
+
+                        <Button x:Name="TranscriptDoneButton"
+                                Grid.Row="0" Grid.Column="1"
+                                Text="Done"
+                                SemanticProperties.Hint="Save the edited transcript text"
+                                Clicked="OnTranscriptEditorCompleted"
+                                IsVisible="False"
+                                HorizontalOptions="End"
+                                BackgroundColor="{StaticResource NavigationBarColor}"
+                                TextColor="{StaticResource NavigationBarTextColor}"/>
+                    </Grid>
                 </Border>
             </Grid>
         </Border>
