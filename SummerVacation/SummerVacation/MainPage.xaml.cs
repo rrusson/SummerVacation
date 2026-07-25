@@ -34,6 +34,7 @@ namespace SummerVacation
 		public MainPage(PhotoLibrary photoLibrary, AudioNarrationService narrationService, ISpeechToTextService speechToTextService, IPhotoCommentService photoCommentService)
 		{
 			InitializeComponent();
+			_currentFileName = string.Empty;
 			_photoLibrary = photoLibrary;
 			_narrationService = narrationService;
 			_speechToTextService = speechToTextService;

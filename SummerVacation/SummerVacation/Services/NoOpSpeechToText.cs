@@ -2,6 +2,7 @@ using CommunityToolkit.Maui.Media;
 
 namespace SummerVacation.Services;
 
+#pragma warning disable S108      // "Nested blocks of code should not be left empty" - events are no-op and intentionally left empty                                                                                                           
 /// <summary>
 /// No-op implementation of <see cref="ISpeechToText"/> used on platforms or devices
 /// where speech recognition is not available (e.g. Android emulators).
@@ -26,6 +27,7 @@ internal sealed class NoOpSpeechToText : ISpeechToText
 		add { }
 		remove { }
 	}
+#pragma warning restore S108
 
 	public SpeechToTextState CurrentState => SpeechToTextState.Stopped;
 
