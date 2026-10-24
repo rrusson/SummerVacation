@@ -102,6 +102,17 @@ public sealed class AudioNarrationService : IDisposable
 	/// </summary>
 	public async Task PlayAsync(string narrationPath)
 	{
+		await PlayWithDurationAsync(narrationPath);
+	}
+
+	/// <summary>
+	/// Plays the narration at <paramref name="narrationPath"/> and returns its duration when available.
+	/// Throws <see cref="FileNotFoundException"/> if the file does not exist.
+	/// </summary>
+	public async Task<TimeSpan?> PlayWithDurationAsync(string narrationPath)
+	{
+		StopPlayback();
+
 		if (!File.Exists(narrationPath))
 		{
 			throw new FileNotFoundException("Narration file not found.", narrationPath);
@@ -111,7 +122,11 @@ public sealed class AudioNarrationService : IDisposable
 		var audioBytes = await File.ReadAllBytesAsync(narrationPath);
 		_audioPlayer = _audioManager.CreatePlayer(new MemoryStream(audioBytes));
 		_audioPlayer.PlaybackEnded += OnPlayerPlaybackEnded;
+		var duration = _audioPlayer.Duration > 0
+			? TimeSpan.FromSeconds(_audioPlayer.Duration)
+			: (TimeSpan?)null;
 		_audioPlayer.Play();
+		return duration;
 	}
 
 	/// <summary>Stops playback and releases the player.</summary>

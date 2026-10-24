@@ -14,12 +14,16 @@ namespace SummerVacation
 		private const string RecordNarrationText = "R̲ecord Narration";
 		private const string ReRecordNarrationText = "R̲e-record";
 		private const string PlayNarrationText = "P̲lay Narration";
+		private static readonly TimeSpan MinimumSlideshowDuration = TimeSpan.FromSeconds(5);
+		private static readonly TimeSpan SlideshowNarrationPadding = TimeSpan.FromSeconds(1);
 
 		private readonly PhotoLibrary _photoLibrary;
 		private readonly AudioNarrationService _narrationService;
 		private readonly ISpeechToTextService _speechToTextService;
 		private readonly IPhotoCommentService _photoCommentService;
 		private string _currentFileName;
+		private bool _isSlideshowMode;
+		private CancellationTokenSource? _slideshowCancellationTokenSource;
 
 		public bool ShowTranscriptOverlay
 		{
@@ -65,6 +69,12 @@ namespace SummerVacation
 			DirectoryPathLabel.Text = _photoLibrary.CurrentDirectory;
 			await LoadCurrentPhotoAsync();
 			UpdateControlStates();
+		}
+
+		protected override void OnDisappearing()
+		{
+			_ = EndSlideshowModeAsync(resetToFirstPhoto: false);
+			base.OnDisappearing();
 		}
 
 		private async void OnSelectDirectoryClicked(object sender, EventArgs e)
@@ -204,8 +214,15 @@ namespace SummerVacation
 		{
 			if (_photoLibrary.MovePrevious())
 			{
-				await LoadCurrentPhotoAsync();
-				UpdateControlStates();
+				if (_isSlideshowMode)
+				{
+					await StartSlideshowForCurrentPhotoAsync();
+				}
+				else
+				{
+					await LoadCurrentPhotoAsync();
+					UpdateControlStates();
+				}
 			}
 		}
 
@@ -213,9 +230,151 @@ namespace SummerVacation
 		{
 			if (_photoLibrary.MoveNext())
 			{
-				await LoadCurrentPhotoAsync();
-				UpdateControlStates();
+				if (_isSlideshowMode)
+				{
+					await StartSlideshowForCurrentPhotoAsync();
+				}
+				else
+				{
+					await LoadCurrentPhotoAsync();
+					UpdateControlStates();
+				}
 			}
+		}
+
+		private async void OnSlideshowClicked(object sender, EventArgs e)
+		{
+			if (_isSlideshowMode || !_photoLibrary.HasPhotos)
+			{
+				return;
+			}
+
+			_isSlideshowMode = true;
+			_photoLibrary.MoveToFirst();
+			await StartSlideshowForCurrentPhotoAsync();
+		}
+
+		private async Task StartSlideshowForCurrentPhotoAsync()
+		{
+			if (!_isSlideshowMode)
+			{
+				return;
+			}
+
+			await LoadCurrentPhotoAsync();
+			var slideDuration = await PlayNarrationForSlideshowAsync();
+			if (!_isSlideshowMode)
+			{
+				return;
+			}
+
+			StartSlideshowTimer(slideDuration);
+			UpdateControlStates();
+		}
+
+		private async Task<TimeSpan> PlayNarrationForSlideshowAsync()
+		{
+			try
+			{
+				var narrationDuration = await _narrationService.PlayWithDurationAsync(_photoLibrary.GetNarrationPath());
+				return GetSlideshowSlideDuration(narrationDuration);
+			}
+			catch (FileNotFoundException)
+			{
+				return MinimumSlideshowDuration;
+			}
+			catch (Exception)
+			{
+				return MinimumSlideshowDuration;
+			}
+		}
+
+		private static TimeSpan GetSlideshowSlideDuration(TimeSpan? narrationDuration)
+		{
+			if (narrationDuration is null || narrationDuration <= TimeSpan.Zero)
+			{
+				return MinimumSlideshowDuration;
+			}
+
+			var extendedDuration = narrationDuration.Value + SlideshowNarrationPadding;
+			return extendedDuration > MinimumSlideshowDuration
+				? extendedDuration
+				: MinimumSlideshowDuration;
+		}
+
+		private void StartSlideshowTimer(TimeSpan slideDuration)
+		{
+			CancelSlideshowTimer();
+
+			var cancellationTokenSource = new CancellationTokenSource();
+			_slideshowCancellationTokenSource = cancellationTokenSource;
+			_ = AdvanceSlideshowAfterDelayAsync(slideDuration, cancellationTokenSource.Token);
+		}
+
+		private async Task AdvanceSlideshowAfterDelayAsync(TimeSpan slideDuration, CancellationToken cancellationToken)
+		{
+			try
+			{
+				await Task.Delay(slideDuration, cancellationToken);
+			}
+			catch (OperationCanceledException)
+			{
+				return;
+			}
+
+			if (cancellationToken.IsCancellationRequested || !_isSlideshowMode)
+			{
+				return;
+			}
+
+			await MainThread.InvokeOnMainThreadAsync(async () =>
+			{
+				if (_photoLibrary.MoveNext())
+				{
+					await StartSlideshowForCurrentPhotoAsync();
+				}
+				else
+				{
+					await EndSlideshowModeAsync(resetToFirstPhoto: true);
+				}
+			});
+		}
+
+		private async Task EndSlideshowModeAsync(bool resetToFirstPhoto)
+		{
+			if (!_isSlideshowMode && _slideshowCancellationTokenSource is null)
+			{
+				return;
+			}
+
+			_isSlideshowMode = false;
+			CancelSlideshowTimer();
+			_narrationService.StopPlayback();
+			PlayButton.Text = PlayNarrationText;
+
+			if (_photoLibrary.HasPhotos)
+			{
+				if (resetToFirstPhoto)
+				{
+					_photoLibrary.MoveToFirst();
+				}
+
+				await LoadCurrentPhotoAsync();
+			}
+
+			UpdateControlStates();
+		}
+
+		private void CancelSlideshowTimer()
+		{
+			if (_slideshowCancellationTokenSource is null)
+			{
+				return;
+			}
+
+			_slideshowCancellationTokenSource.Cancel();
+			_slideshowCancellationTokenSource.Dispose();
+			_slideshowCancellationTokenSource = null;
 		}
 
 		private async void OnRecordClicked(object sender, EventArgs e)
@@ -502,13 +661,16 @@ namespace SummerVacation
 			var navColor = (Color)Application.Current!.Resources["NavigationBarColor"];
 			var disabledColor = Colors.Gray;
 
-			bool prevEnabled = hasPhotos && _photoLibrary.CurrentPhotoIndex > 0 && !isRecording && !isPlaying;
+			bool prevEnabled = hasPhotos && _photoLibrary.CurrentPhotoIndex > 0 && (_isSlideshowMode || (!isRecording && !isPlaying));
 			PreviousButton.IsEnabled = prevEnabled;
 			PreviousButton.BackgroundColor = prevEnabled ? navColor : disabledColor;
 
-			bool nextEnabled = hasPhotos && _photoLibrary.CurrentPhotoIndex < _photoLibrary.PhotoCount - 1 && !isRecording && !isPlaying;
+			bool nextEnabled = hasPhotos && _photoLibrary.CurrentPhotoIndex < _photoLibrary.PhotoCount - 1 && (_isSlideshowMode || (!isRecording && !isPlaying));
 			NextButton.IsEnabled = nextEnabled;
 			NextButton.BackgroundColor = nextEnabled ? navColor : disabledColor;
+
+			SelectDirectoryButton.IsEnabled = !_isSlideshowMode;
+			SelectDirectoryButton.BackgroundColor = SelectDirectoryButton.IsEnabled ? navColor : disabledColor;
 
 			RecordButton.IsEnabled = hasPhotos && !isPlaying;
 			if (!isRecording)
@@ -517,12 +679,28 @@ namespace SummerVacation
 				RecordButton.Text = hasNarration ? ReRecordNarrationText : RecordNarrationText;
 			}
 
+			if (_isSlideshowMode)
+			{
+				RecordButton.IsEnabled = false;
+				RecordButton.BackgroundColor = disabledColor;
+			}
+
 			bool playEnabled = hasPhotos && !isRecording && hasNarration;
 			PlayButton.IsEnabled = playEnabled;
 			PlayButton.BackgroundColor = playEnabled ? navColor : disabledColor;
+
+			if (_isSlideshowMode)
+			{
+				PlayButton.IsEnabled = false;
+				PlayButton.BackgroundColor = disabledColor;
+			}
+
+			SlideshowButton.IsEnabled = hasPhotos && !_isSlideshowMode && !isRecording;
+			SlideshowButton.BackgroundColor = SlideshowButton.IsEnabled ? navColor : disabledColor;
+			AutoRenameCheckBox.IsEnabled = !_isSlideshowMode;
 		}
 
-		// Windows Hotkeys Wiring: Left Arrow = Previous, Right Arrow = Next, R = Record, P = Play, S = Select Directory, Escape = Toggle Transcript Overlay
+		// Windows Hotkeys Wiring: Left Arrow = Previous, Right Arrow = Next, R = Record, P = Play, S = Select Directory, Escape = Exit Slideshow/Toggle Transcript Overlay
 #if WINDOWS
 		private void OnPageLoaded(object? sender, EventArgs e)
 		{
@@ -578,7 +756,14 @@ namespace SummerVacation
 					e.Handled = true;
 					break;
 				case VirtualKey.Escape:
-					ShowTranscriptOverlay = !ShowTranscriptOverlay;
+					if (_isSlideshowMode)
+					{
+						_ = EndSlideshowModeAsync(resetToFirstPhoto: false);
+					}
+					else
+					{
+						ShowTranscriptOverlay = !ShowTranscriptOverlay;
+					}
 					e.Handled = true;
 					break;
 			}

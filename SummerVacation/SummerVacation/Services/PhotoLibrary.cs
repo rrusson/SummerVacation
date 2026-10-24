@@ -75,6 +75,19 @@ public sealed class PhotoLibrary
 		return true;
 	}
 
+	/// <summary>Moves to the first photo. Returns false when no photos are loaded.</summary>
+	public bool MoveToFirst()
+	{
+		if (_photoFiles.Count == 0)
+		{
+			CurrentPhotoIndex = -1;
+			return false;
+		}
+
+		CurrentPhotoIndex = 0;
+		return true;
+	}
+
 	/// <summary>Moves to the next photo. Returns false if already at the last photo.</summary>
 	public bool MoveNext()
 	{
