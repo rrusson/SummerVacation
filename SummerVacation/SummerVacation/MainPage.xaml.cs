@@ -416,6 +416,9 @@ namespace SummerVacation
 		private async Task SaveRecording()
 		{
 			StatusLabel.Text = "Saving recording...";
+			RecordButton.IsEnabled = false;
+			RecordButton.BackgroundColor = Colors.Gray;
+			await Task.Yield();
 			try
 			{
 				var narrationPath = _photoLibrary.GetNarrationPath();
@@ -423,7 +426,15 @@ namespace SummerVacation
 
 				// Give the platform some time to fire the final RecognitionResultUpdated event after stopping.
 				await Task.Delay(500).ConfigureAwait(true);
-				string? recognizedText = await _speechToTextService.StopAsync();
+				// Run on the UI thread so the follow-up alerts aren't shown from a background thread.
+				string? recognizedText = await MainThread.InvokeOnMainThreadAsync(() => _speechToTextService.StopAsync());
+
+				var tempAudioPath = await _narrationService.StopToTempFileAsync();
+				if (string.IsNullOrWhiteSpace(recognizedText) && tempAudioPath is not null)
+				{
+					StatusLabel.Text = "Transcribing...";
+					recognizedText = await _speechToTextService.TranscribeFileAsync(tempAudioPath);
+				}
 
 				if (string.IsNullOrWhiteSpace(recognizedText))
 				{
@@ -437,7 +448,11 @@ namespace SummerVacation
 
 						if (!replace)
 						{
-							await _narrationService.DiscardRecordingAsync();
+							if (tempAudioPath is not null)
+							{
+								File.Delete(tempAudioPath);
+							}
+
 							StatusLabel.Text = "Existing narration kept";
 							RecordButton.Text = ReRecordNarrationText;
 							UpdateControlStates();
@@ -450,7 +465,10 @@ namespace SummerVacation
 					}
 				}
 
-				await _narrationService.StopAndSaveAsync(narrationPath);
+				if (tempAudioPath is not null)
+				{
+					_narrationService.CommitRecording(tempAudioPath, narrationPath);
+				}
 
 				if (!string.IsNullOrWhiteSpace(_currentFileName))
 				{

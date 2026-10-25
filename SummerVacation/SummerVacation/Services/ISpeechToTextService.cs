@@ -11,6 +11,9 @@
 
 		Task<string?> StopAsync(CancellationToken cancellationToken = default);
 
+		/// <summary>Transcribes a recorded audio file offline. Returns null when nothing is recognized or the platform doesn't support it.</summary>
+		Task<string?> TranscribeFileAsync(string audioPath, CancellationToken cancellationToken = default);
+
 		/// <summary>Renames the transcript entry key from <paramref name="oldFileName"/> to <paramref name="newFileName"/>, if present.</summary>
 		Task RenamePhotoInTranscriptAsync(string transcriptPath, string oldFileName, string newFileName, CancellationToken cancellationToken = default);
 	}
