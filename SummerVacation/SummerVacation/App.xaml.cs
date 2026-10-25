@@ -13,7 +13,7 @@
 		protected override Window CreateWindow(IActivationState? activationState)
 		{
 			var mainPage = _serviceProvider.GetRequiredService<MainPage>();
-			return new Window(mainPage) { Title = "SummerVacation" };
+			return new Window(mainPage) { Title = "Photo Narrator" };
 		}
 	}
 }

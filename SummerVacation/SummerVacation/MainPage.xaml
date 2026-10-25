@@ -113,6 +113,14 @@
                         BackgroundColor="{StaticResource NavigationBarColor}"
                         TextColor="{StaticResource NavigationBarTextColor}"
                         HorizontalOptions="Center" />
+
+				<Button x:Name="SlideshowButton"
+                        Text="Slideshow"
+                        SemanticProperties.Hint="Play a slideshow of all photos in the selected directory"
+                        Clicked="OnSlideshowClicked"
+                        HorizontalOptions="Center"
+                        BackgroundColor="{StaticResource NavigationBarColor}"
+                        TextColor="{StaticResource NavigationBarTextColor}" />
 			</HorizontalStackLayout>
 
 			<!-- Navigation buttons -->

@@ -43,6 +43,10 @@ public class SpeechToTextService : ISpeechToTextService
 
 		_currentRecognitionResult = null;
 
+		_speechToText.RecognitionResultUpdated += OnRecognitionResultUpdated;
+		_speechToText.RecognitionResultCompleted += OnRecognitionResultCompleted;
+		_speechToText.StateChanged += OnStateChanged;
+
 		try
 		{
 			await _speechToText.StartListenAsync(
@@ -58,11 +62,12 @@ public class SpeechToTextService : ISpeechToTextService
 			// On Windows, RequestPermissions may return true even when Online Speech Recognition
 			// is disabled in Privacy Settings causing StartListenAsync to throw.
 			// Treat this as a permission denial so the caller can see guidance without crashing.
+			_speechToText.RecognitionResultUpdated -= OnRecognitionResultUpdated;
+			_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
+			_speechToText.StateChanged -= OnStateChanged;
 			return false;
 		}
 
-		_speechToText.RecognitionResultUpdated += OnRecognitionResultUpdated;
-		_speechToText.RecognitionResultCompleted += OnRecognitionResultCompleted;
 		_isListening = true;
 		return true;
 	}
@@ -92,6 +97,7 @@ public class SpeechToTextService : ISpeechToTextService
 		{
 			_speechToText.RecognitionResultUpdated -= OnRecognitionResultUpdated;
 			_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
+			_speechToText.StateChanged -= OnStateChanged;
 			_isListening = false;
 		}
 
@@ -228,8 +234,45 @@ public class SpeechToTextService : ISpeechToTextService
 		}
 	}
 
+	/// <inheritdoc/>
+	public Task<string?> TranscribeFileAsync(string audioPath, CancellationToken cancellationToken = default)
+	{
+#if WINDOWS
+		return TranscribeOnWindowsAsync(audioPath, cancellationToken);
+#else
+		return Task.FromResult<string?>(null);
+#endif
+	}
+
+#if WINDOWS
+	private static async Task<string?> TranscribeOnWindowsAsync(string audioPath, CancellationToken cancellationToken)
+	{
+		try
+		{
+			var text = await WhisperFileTranscriber.TranscribeAsync(audioPath, CultureInfo.CurrentCulture, cancellationToken).ConfigureAwait(false);
+			if (!string.IsNullOrWhiteSpace(text))
+			{
+				return text;
+			}
+		}
+		catch (Exception ex) when (ex is not OperationCanceledException)
+		{
+			// Whisper may be unavailable (e.g. the model download failed while offline); fall back to the built-in recognizer.
+			System.Diagnostics.Debug.WriteLine($"[Whisper] Transcription failed, falling back to SAPI: {ex}");
+		}
+
+		return await Task.Run(() => WindowsFileTranscriber.Transcribe(audioPath, CultureInfo.CurrentCulture), cancellationToken).ConfigureAwait(false);
+	}
+#endif
+
+	private static void OnStateChanged(object? sender, SpeechToTextStateChangedEventArgs e)
+	{
+		System.Diagnostics.Debug.WriteLine($"[SpeechToText] State: {e.State}");
+	}
+
 	private void OnRecognitionResultUpdated(object? sender, SpeechToTextRecognitionResultUpdatedEventArgs e)
 	{
+		System.Diagnostics.Debug.WriteLine($"[SpeechToText] Partial result: '{e.RecognitionResult}'");
 		if (!string.IsNullOrEmpty(e.RecognitionResult))
 		{
 			_currentRecognitionResult = e.RecognitionResult;
