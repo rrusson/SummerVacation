@@ -72,58 +72,14 @@ internal static class WindowsFileTranscriber
 
 	private static bool TryReadPcm(byte[] wav, out byte[] pcm, out SpeechAudioFormatInfo format)
 	{
-		pcm = [];
 		format = null!;
-
-		if (wav.Length < 12 || Encoding.ASCII.GetString(wav, 0, 4) != "RIFF")
+		if (!WavPcmReader.TryRead(wav, out pcm, out var sampleRate, out var channels))
 		{
 			return false;
 		}
 
-		short channels = 0;
-		var sampleRate = 0;
-		var position = 12;
-
-		while (position + 8 <= wav.Length)
-		{
-			var chunkId = Encoding.ASCII.GetString(wav, position, 4);
-			var chunkSize = BitConverter.ToInt32(wav, position + 4);
-			var dataStart = position + 8;
-
-			if (chunkId == "fmt " && dataStart + 16 <= wav.Length)
-			{
-				var isPcm = BitConverter.ToInt16(wav, dataStart) == 1;
-				channels = BitConverter.ToInt16(wav, dataStart + 2);
-				sampleRate = BitConverter.ToInt32(wav, dataStart + 4);
-				var bitsPerSample = BitConverter.ToInt16(wav, dataStart + 14);
-				if (!isPcm || bitsPerSample != 16 || channels is < 1 or > 2)
-				{
-					return false;
-				}
-			}
-			else if (chunkId == "data")
-			{
-				if (sampleRate == 0)
-				{
-					return false;
-				}
-
-				var length = chunkSize < 0 || dataStart + chunkSize > wav.Length ? wav.Length - dataStart : chunkSize;
-				pcm = new byte[length];
-				Array.Copy(wav, dataStart, pcm, 0, length);
-				format = new SpeechAudioFormatInfo(sampleRate, AudioBitsPerSample.Sixteen, channels == 1 ? AudioChannel.Mono : AudioChannel.Stereo);
-				return true;
-			}
-
-			if (chunkSize < 0)
-			{
-				return false;
-			}
-
-			position = dataStart + chunkSize + (chunkSize & 1);
-		}
-
-		return false;
+		format = new SpeechAudioFormatInfo(sampleRate, AudioBitsPerSample.Sixteen, channels == 1 ? AudioChannel.Mono : AudioChannel.Stereo);
+		return true;
 	}
 
 	private static RecognizerInfo? SelectRecognizer(CultureInfo culture)

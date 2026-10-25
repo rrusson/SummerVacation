@@ -238,11 +238,32 @@ public class SpeechToTextService : ISpeechToTextService
 	public Task<string?> TranscribeFileAsync(string audioPath, CancellationToken cancellationToken = default)
 	{
 #if WINDOWS
-		return Task.Run(() => WindowsFileTranscriber.Transcribe(audioPath, CultureInfo.CurrentCulture), cancellationToken);
+		return TranscribeOnWindowsAsync(audioPath, cancellationToken);
 #else
 		return Task.FromResult<string?>(null);
 #endif
 	}
+
+#if WINDOWS
+	private static async Task<string?> TranscribeOnWindowsAsync(string audioPath, CancellationToken cancellationToken)
+	{
+		try
+		{
+			var text = await WhisperFileTranscriber.TranscribeAsync(audioPath, CultureInfo.CurrentCulture, cancellationToken).ConfigureAwait(false);
+			if (!string.IsNullOrWhiteSpace(text))
+			{
+				return text;
+			}
+		}
+		catch (Exception ex) when (ex is not OperationCanceledException)
+		{
+			// Whisper may be unavailable (e.g. the model download failed while offline); fall back to the built-in recognizer.
+			System.Diagnostics.Debug.WriteLine($"[Whisper] Transcription failed, falling back to SAPI: {ex}");
+		}
+
+		return await Task.Run(() => WindowsFileTranscriber.Transcribe(audioPath, CultureInfo.CurrentCulture), cancellationToken).ConfigureAwait(false);
+	}
+#endif
 
 	private static void OnStateChanged(object? sender, SpeechToTextStateChangedEventArgs e)
 	{
