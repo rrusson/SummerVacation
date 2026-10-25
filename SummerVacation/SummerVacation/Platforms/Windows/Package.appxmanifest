@@ -28,7 +28,7 @@
   </Resources>
 
   <Applications>
-	<Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="$targetentrypoint$">
+	<Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="$targetentrypoint$" uap18:TrustLevel="appContainer" uap18:RuntimeBehavior="windowsApp">
 	  <uap:VisualElements
 		DisplayName="SummerVacation"
 		Description="An app to add narration to all your photos"
