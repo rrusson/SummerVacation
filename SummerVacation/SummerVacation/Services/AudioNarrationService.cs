@@ -203,15 +203,18 @@ public sealed class AudioNarrationService : IDisposable
 	/// </summary>
 	public async Task PlayAsync(string narrationPath)
 	{
-		await PlayWithDurationAsync(narrationPath);
+		await PlayWithDurationAsync(narrationPath).ConfigureAwait(true);
 	}
 
 	/// <summary>
 	/// Plays the narration at <paramref name="narrationPath"/> and returns its duration when available.
 	/// Throws <see cref="FileNotFoundException"/> if the file does not exist.
 	/// </summary>
-	public async Task<TimeSpan?> PlayWithDurationAsync(string narrationPath)
+	/// <param name="narrationPath">The audio file to play.</param>
+	/// <param name="cancellationToken">A token that cancels playback setup before audio starts.</param>
+	public async Task<TimeSpan?> PlayWithDurationAsync(string narrationPath, CancellationToken cancellationToken = default)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
 		StopPlayback();
 
 		if (!File.Exists(narrationPath))
@@ -220,7 +223,8 @@ public sealed class AudioNarrationService : IDisposable
 		}
 
 		// Read into memory so the file is not locked during playback.
-		var audioBytes = await File.ReadAllBytesAsync(narrationPath);
+		var audioBytes = await File.ReadAllBytesAsync(narrationPath, cancellationToken).ConfigureAwait(true);
+		cancellationToken.ThrowIfCancellationRequested();
 		_audioPlayer = _audioManager.CreatePlayer(new MemoryStream(audioBytes));
 		_audioPlayer.PlaybackEnded += OnPlayerPlaybackEnded;
 		var duration = _audioPlayer.Duration > 0

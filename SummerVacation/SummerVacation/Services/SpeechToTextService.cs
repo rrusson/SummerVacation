@@ -35,7 +35,7 @@ public class SpeechToTextService : ISpeechToTextService
 			return true;
 		}
 
-		var isGranted = await _speechToText.RequestPermissions(cancellationToken);
+		var isGranted = await _speechToText.RequestPermissions(cancellationToken).ConfigureAwait(true);
 		if (!isGranted)
 		{
 			return false;
@@ -55,20 +55,24 @@ public class SpeechToTextService : ISpeechToTextService
 					Culture = CultureInfo.CurrentCulture,
 					ShouldReportPartialResults = true,
 				},
-				cancellationToken);
+				cancellationToken).ConfigureAwait(true);
+			_isListening = true;
 		}
 		catch (UnauthorizedAccessException)
 		{
 			// On Windows, RequestPermissions may return true even when Online Speech Recognition
 			// is disabled in Privacy Settings causing StartListenAsync to throw.
 			// Treat this as a permission denial so the caller can see guidance without crashing.
-			_speechToText.RecognitionResultUpdated -= OnRecognitionResultUpdated;
-			_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
-			_speechToText.StateChanged -= OnStateChanged;
 			return false;
 		}
+		finally
+		{
+			if (!_isListening)
+			{
+				UnsubscribeFromRecognitionEvents();
+			}
+		}
 
-		_isListening = true;
 		return true;
 	}
 
@@ -95,9 +99,7 @@ public class SpeechToTextService : ISpeechToTextService
 		}
 		finally
 		{
-			_speechToText.RecognitionResultUpdated -= OnRecognitionResultUpdated;
-			_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
-			_speechToText.StateChanged -= OnStateChanged;
+			UnsubscribeFromRecognitionEvents();
 			_isListening = false;
 		}
 
@@ -295,16 +297,23 @@ public class SpeechToTextService : ISpeechToTextService
 		}
 	}
 
+	private void UnsubscribeFromRecognitionEvents()
+	{
+		_speechToText.RecognitionResultUpdated -= OnRecognitionResultUpdated;
+		_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
+		_speechToText.StateChanged -= OnStateChanged;
+	}
+
 	protected virtual void Dispose(bool disposing)
 	{
 		if (!_isDisposed)
 		{
 			if (disposing && _isListening)
 			{
-				_speechToText.RecognitionResultUpdated -= OnRecognitionResultUpdated;
-				_speechToText.RecognitionResultCompleted -= OnRecognitionResultCompleted;
+				UnsubscribeFromRecognitionEvents();
 				// Fire-and-forget; best effort cleanup on dispose.
 				_ = _speechToText.StopListenAsync(CancellationToken.None);
+				_isListening = false;
 			}
 
 			_isDisposed = true;

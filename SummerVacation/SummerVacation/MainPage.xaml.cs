@@ -23,6 +23,7 @@ namespace SummerVacation
 		private readonly IPhotoCommentService _photoCommentService;
 		private string _currentFileName;
 		private bool _isSlideshowMode;
+		private bool _isSaving;
 		private CancellationTokenSource? _slideshowCancellationTokenSource;
 
 		public bool ShowTranscriptOverlay
@@ -79,16 +80,21 @@ namespace SummerVacation
 
 		private async void OnSelectDirectoryClicked(object sender, EventArgs e)
 		{
+			if (_isSaving || _isSlideshowMode || _narrationService.IsRecording)
+			{
+				return;
+			}
+
 			try
 			{
-				if (!await HasStoragePermissionAsync())
+				if (!await HasStoragePermissionAsync().ConfigureAwait(true))
 				{
 					StatusLabel.Text = "Permission to access photos is required.";
 					return;
 				}
 
 				StatusLabel.Text = "Loading photos...";
-				bool picked = await _photoLibrary.PickDirectoryAsync();
+				bool picked = await _photoLibrary.PickDirectoryAsync().ConfigureAwait(true);
 
 				if (!picked)
 				{
@@ -99,7 +105,7 @@ namespace SummerVacation
 
 				if (_photoLibrary.HasPhotos)
 				{
-					await LoadCurrentPhotoAsync();
+					await LoadCurrentPhotoAsync().ConfigureAwait(true);
 				}
 				else
 				{
@@ -161,9 +167,16 @@ namespace SummerVacation
 			await DisplayAlertAsync("Transcription Unavailable", message, "OK");
 		}
 
-		private async Task LoadCurrentPhotoAsync()
+		private async Task LoadCurrentPhotoAsync(CancellationToken cancellationToken = default)
 		{
 			var photoPath = _photoLibrary.CurrentPhotoPath;
+			var photoFileName = photoPath is null ? string.Empty : Path.GetFileName(photoPath);
+			var transcriptPath = _photoLibrary.GetTranscriptPath();
+			if (cancellationToken.IsCancellationRequested || !IsCurrentPhoto(photoPath))
+			{
+				return;
+			}
+
 			if (photoPath is null)
 			{
 				PhotoDisplay.Source = null;
@@ -174,14 +187,23 @@ namespace SummerVacation
 
 			try
 			{
+				cancellationToken.ThrowIfCancellationRequested();
 				PhotoDisplay.Source = ImageSource.FromFile(photoPath);
 				NoPhotoLabel.IsVisible = false;
-				_currentFileName = Path.GetFileName(photoPath);
+				_currentFileName = photoFileName;
 				StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {_currentFileName}";
-				await ShowTranscriptForCurrentPhotoAsync();
+				await ShowTranscriptForPhotoAsync(transcriptPath, photoFileName, photoPath, cancellationToken).ConfigureAwait(true);
+			}
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+			{
 			}
 			catch (Exception ex)
 			{
+				if (cancellationToken.IsCancellationRequested || !IsCurrentPhoto(photoPath))
+				{
+					return;
+				}
+
 				await DisplayAlertAsync(Error, "Failed to load photo: " + ex.Message, "OK");
 				StatusLabel.Text = "Error loading photo";
 			}
@@ -193,6 +215,29 @@ namespace SummerVacation
 		/// </summary>
 		private async Task ShowTranscriptForCurrentPhotoAsync()
 		{
+			var photoPath = _photoLibrary.CurrentPhotoPath;
+			if (photoPath is null)
+			{
+				return;
+			}
+
+			await ShowTranscriptForPhotoAsync(
+				_photoLibrary.GetTranscriptPath(),
+				Path.GetFileName(photoPath),
+				photoPath).ConfigureAwait(true);
+		}
+
+		private async Task ShowTranscriptForPhotoAsync(
+			string transcriptPath,
+			string photoFileName,
+			string photoPath,
+			CancellationToken cancellationToken = default)
+		{
+			if (cancellationToken.IsCancellationRequested || !IsCurrentPhoto(photoPath))
+			{
+				return;
+			}
+
 			// Ensure any in-progress edit from a previous photo is discarded when switching photos.
 			TranscriptEditor.IsVisible = false;
 			TranscriptDoneButton.IsVisible = false;
@@ -200,27 +245,38 @@ namespace SummerVacation
 
 			try
 			{
-				var transcript = await _speechToTextService.GetTranscriptForPhotoAsync(_photoLibrary.GetTranscriptPath(), _currentFileName);
+				var transcript = await _speechToTextService.GetTranscriptForPhotoAsync(transcriptPath, photoFileName).ConfigureAwait(true);
+				if (cancellationToken.IsCancellationRequested || !IsCurrentPhoto(photoPath))
+				{
+					return;
+				}
+
 				TranscriptLabel.Text = transcript;
 				TranscriptOverlay.IsVisible = !string.IsNullOrWhiteSpace(transcript) && ShowTranscriptOverlay;
 			}
 			catch (Exception)
 			{
-				TranscriptOverlay.IsVisible = false;
+				if (!cancellationToken.IsCancellationRequested && IsCurrentPhoto(photoPath))
+				{
+					TranscriptOverlay.IsVisible = false;
+				}
 			}
 		}
 
+		private bool IsCurrentPhoto(string? photoPath) =>
+			string.Equals(_photoLibrary.CurrentPhotoPath, photoPath, StringComparison.Ordinal);
+
 		private async void OnPreviousClicked(object sender, EventArgs e)
 		{
-			if (_photoLibrary.MovePrevious())
+			if (!_isSaving && _photoLibrary.MovePrevious())
 			{
 				if (_isSlideshowMode)
 				{
-					await StartSlideshowForCurrentPhotoAsync();
+					await StartSlideshowForCurrentPhotoAsync().ConfigureAwait(true);
 				}
 				else
 				{
-					await LoadCurrentPhotoAsync();
+					await LoadCurrentPhotoAsync().ConfigureAwait(true);
 					UpdateControlStates();
 				}
 			}
@@ -228,15 +284,15 @@ namespace SummerVacation
 
 		private async void OnNextClicked(object sender, EventArgs e)
 		{
-			if (_photoLibrary.MoveNext())
+			if (!_isSaving && _photoLibrary.MoveNext())
 			{
 				if (_isSlideshowMode)
 				{
-					await StartSlideshowForCurrentPhotoAsync();
+					await StartSlideshowForCurrentPhotoAsync().ConfigureAwait(true);
 				}
 				else
 				{
-					await LoadCurrentPhotoAsync();
+					await LoadCurrentPhotoAsync().ConfigureAwait(true);
 					UpdateControlStates();
 				}
 			}
@@ -244,44 +300,74 @@ namespace SummerVacation
 
 		private async void OnSlideshowClicked(object sender, EventArgs e)
 		{
-			if (_isSlideshowMode || !_photoLibrary.HasPhotos)
+			if (_isSlideshowMode || _isSaving || _narrationService.IsRecording || !_photoLibrary.HasPhotos)
 			{
 				return;
 			}
 
 			_isSlideshowMode = true;
+			CloseTranscriptEditor();
 			_photoLibrary.MoveToFirst();
-			await StartSlideshowForCurrentPhotoAsync();
+			UpdateControlStates();
+			await StartSlideshowForCurrentPhotoAsync().ConfigureAwait(true);
 		}
 
 		private async Task StartSlideshowForCurrentPhotoAsync()
 		{
-			if (!_isSlideshowMode)
+			if (!_isSlideshowMode || _isSaving)
 			{
 				return;
 			}
 
-			await LoadCurrentPhotoAsync();
-			var slideDuration = await PlayNarrationForSlideshowAsync();
-			if (!_isSlideshowMode)
+			CancelSlideshowTimer();
+			var transition = new CancellationTokenSource();
+			_slideshowCancellationTokenSource = transition;
+			var cancellationToken = transition.Token;
+			var photoPath = _photoLibrary.CurrentPhotoPath;
+			var narrationPath = _photoLibrary.GetNarrationPath();
+
+			if (photoPath is null)
 			{
+				await EndSlideshowModeAsync(resetToFirstPhoto: false).ConfigureAwait(true);
 				return;
 			}
 
-			StartSlideshowTimer(slideDuration);
-			UpdateControlStates();
+			_narrationService.StopPlayback();
+			try
+			{
+				await LoadCurrentPhotoAsync(cancellationToken).ConfigureAwait(true);
+				if (!IsCurrentSlideshowTransition(transition, photoPath))
+				{
+					return;
+				}
+
+				var slideDuration = await PlayNarrationForSlideshowAsync(narrationPath, cancellationToken).ConfigureAwait(true);
+				if (!IsCurrentSlideshowTransition(transition, photoPath))
+				{
+					return;
+				}
+
+				StartSlideshowTimer(slideDuration, transition);
+			}
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+			{
+			}
 		}
 
-		private async Task<TimeSpan> PlayNarrationForSlideshowAsync()
+		private async Task<TimeSpan> PlayNarrationForSlideshowAsync(string narrationPath, CancellationToken cancellationToken)
 		{
 			try
 			{
-				var narrationDuration = await _narrationService.PlayWithDurationAsync(_photoLibrary.GetNarrationPath());
+				var narrationDuration = await _narrationService.PlayWithDurationAsync(narrationPath, cancellationToken).ConfigureAwait(true);
 				return GetSlideshowSlideDuration(narrationDuration);
 			}
 			catch (FileNotFoundException)
 			{
 				return MinimumSlideshowDuration;
+			}
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+			{
+				throw;
 			}
 			catch (Exception)
 			{
@@ -302,42 +388,47 @@ namespace SummerVacation
 				: MinimumSlideshowDuration;
 		}
 
-		private void StartSlideshowTimer(TimeSpan slideDuration)
+		private void StartSlideshowTimer(TimeSpan slideDuration, CancellationTokenSource transition)
 		{
-			CancelSlideshowTimer();
-
-			var cancellationTokenSource = new CancellationTokenSource();
-			_slideshowCancellationTokenSource = cancellationTokenSource;
-			_ = AdvanceSlideshowAfterDelayAsync(slideDuration, cancellationTokenSource.Token);
+			if (ReferenceEquals(_slideshowCancellationTokenSource, transition))
+			{
+				_ = AdvanceSlideshowAfterDelayAsync(slideDuration, transition);
+			}
 		}
 
-		private async Task AdvanceSlideshowAfterDelayAsync(TimeSpan slideDuration, CancellationToken cancellationToken)
+		private async Task AdvanceSlideshowAfterDelayAsync(TimeSpan slideDuration, CancellationTokenSource transition)
 		{
+			var cancellationToken = transition.Token;
 			try
 			{
-				await Task.Delay(slideDuration, cancellationToken);
+				await Task.Delay(slideDuration, cancellationToken).ConfigureAwait(false);
 			}
 			catch (OperationCanceledException)
 			{
 				return;
 			}
 
-			if (cancellationToken.IsCancellationRequested || !_isSlideshowMode)
+			if (!IsCurrentSlideshowTransition(transition))
 			{
 				return;
 			}
 
 			await MainThread.InvokeOnMainThreadAsync(async () =>
 			{
+				if (!IsCurrentSlideshowTransition(transition))
+				{
+					return;
+				}
+
 				if (_photoLibrary.MoveNext())
 				{
-					await StartSlideshowForCurrentPhotoAsync();
+					await StartSlideshowForCurrentPhotoAsync().ConfigureAwait(true);
 				}
 				else
 				{
-					await EndSlideshowModeAsync(resetToFirstPhoto: true);
+					await EndSlideshowModeAsync(resetToFirstPhoto: true).ConfigureAwait(true);
 				}
-			});
+			}).ConfigureAwait(true);
 		}
 
 		private async Task EndSlideshowModeAsync(bool resetToFirstPhoto)
@@ -351,6 +442,7 @@ namespace SummerVacation
 			CancelSlideshowTimer();
 			_narrationService.StopPlayback();
 			PlayButton.Text = PlayNarrationText;
+			UpdateControlStates();
 
 			if (_photoLibrary.HasPhotos)
 			{
@@ -359,10 +451,24 @@ namespace SummerVacation
 					_photoLibrary.MoveToFirst();
 				}
 
-				await LoadCurrentPhotoAsync();
+				await LoadCurrentPhotoAsync().ConfigureAwait(true);
 			}
 
 			UpdateControlStates();
+		}
+
+		private bool IsCurrentSlideshowTransition(CancellationTokenSource transition, string? photoPath = null) =>
+			_isSlideshowMode &&
+			ReferenceEquals(_slideshowCancellationTokenSource, transition) &&
+			!transition.IsCancellationRequested &&
+			(photoPath is null || IsCurrentPhoto(photoPath));
+
+		private void CloseTranscriptEditor()
+		{
+			TranscriptEditor.Unfocus();
+			TranscriptEditor.IsVisible = false;
+			TranscriptDoneButton.IsVisible = false;
+			TranscriptLabel.IsVisible = true;
 		}
 
 		private void CancelSlideshowTimer()
@@ -379,6 +485,11 @@ namespace SummerVacation
 
 		private async void OnRecordClicked(object sender, EventArgs e)
 		{
+			if (_isSaving || _isSlideshowMode)
+			{
+				return;
+			}
+
 			if (_narrationService.IsRecording)
 			{
 				await SaveRecording();
@@ -388,6 +499,7 @@ namespace SummerVacation
 			try
 			{
 				await _narrationService.StartRecordingAsync();
+				UpdateControlStates();
 				bool transcribing = await _speechToTextService.StartAsync();
 
 				if (!transcribing)
@@ -415,25 +527,35 @@ namespace SummerVacation
 
 		private async Task SaveRecording()
 		{
+			var photoPath = _photoLibrary.CurrentPhotoPath;
+			if (photoPath is null)
+			{
+				return;
+			}
+
+			var photoFileName = _currentFileName;
+			var narrationPath = _photoLibrary.GetNarrationPath();
+			var transcriptPath = _photoLibrary.GetTranscriptPath();
+			var photoFileNames = _photoLibrary.GetAllPhotoFileNames();
+			bool autoRename = AutoRenameCheckBox.IsChecked;
+			bool hadExistingNarration = File.Exists(narrationPath);
+
+			_isSaving = true;
 			StatusLabel.Text = "Saving recording...";
-			RecordButton.IsEnabled = false;
-			RecordButton.BackgroundColor = Colors.Gray;
+			UpdateControlStates();
 			await Task.Yield();
 			try
 			{
-				var narrationPath = _photoLibrary.GetNarrationPath();
-				bool hadExistingNarration = File.Exists(narrationPath);
-
 				// Give the platform some time to fire the final RecognitionResultUpdated event after stopping.
 				await Task.Delay(500).ConfigureAwait(true);
 				// Run on the UI thread so the follow-up alerts aren't shown from a background thread.
-				string? recognizedText = await MainThread.InvokeOnMainThreadAsync(() => _speechToTextService.StopAsync());
+				string? recognizedText = await MainThread.InvokeOnMainThreadAsync(() => _speechToTextService.StopAsync()).ConfigureAwait(true);
 
-				var tempAudioPath = await _narrationService.StopToTempFileAsync();
+				var tempAudioPath = await _narrationService.StopToTempFileAsync().ConfigureAwait(true);
 				if (string.IsNullOrWhiteSpace(recognizedText) && tempAudioPath is not null)
 				{
 					StatusLabel.Text = "Transcribing...";
-					recognizedText = await _speechToTextService.TranscribeFileAsync(tempAudioPath);
+					recognizedText = await _speechToTextService.TranscribeFileAsync(tempAudioPath).ConfigureAwait(true);
 				}
 
 				if (string.IsNullOrWhiteSpace(recognizedText))
@@ -444,7 +566,7 @@ namespace SummerVacation
 							"No Speech Detected",
 							"No words were detected in the recording. Do you want to replace the existing narration with this empty recording?",
 							"Replace",
-							"Keep Existing");
+							"Keep Existing").ConfigureAwait(true);
 
 						if (!replace)
 						{
@@ -461,7 +583,7 @@ namespace SummerVacation
 					}
 					else
 					{
-						await DisplayAlertAsync("No Speech Detected", "No words were detected in the recording.", "OK");
+						await DisplayAlertAsync("No Speech Detected", "No words were detected in the recording.", "OK").ConfigureAwait(true);
 					}
 				}
 
@@ -470,18 +592,18 @@ namespace SummerVacation
 					_narrationService.CommitRecording(tempAudioPath, narrationPath);
 				}
 
-				if (!string.IsNullOrWhiteSpace(_currentFileName))
+				if (!string.IsNullOrWhiteSpace(photoFileName))
 				{
 					await _speechToTextService.SaveTranscriptAsync(
-						_photoLibrary.GetTranscriptPath(),
-						_currentFileName,
+						transcriptPath,
+						photoFileName,
 						recognizedText,
-						_photoLibrary.GetAllPhotoFileNames());
+						photoFileNames).ConfigureAwait(true);
 				}
 
 				try
 				{
-					await _photoCommentService.EmbedCommentAsync(_photoLibrary.CurrentPhotoPath, recognizedText);
+					await _photoCommentService.EmbedCommentAsync(photoPath, recognizedText).ConfigureAwait(true);
 				}
 				catch (Exception ex)
 				{
@@ -489,26 +611,30 @@ namespace SummerVacation
 					System.Diagnostics.Debug.WriteLine($"Failed to embed comment into photo: {ex.Message}");
 				}
 
-				await RenamePhotoFromNarrationIfRequestedAsync(recognizedText);
+				await RenamePhotoFromNarrationIfRequestedAsync(recognizedText, photoPath, transcriptPath, autoRename).ConfigureAwait(true);
 
 				StatusLabel.Text = "Recording saved";
 				RecordButton.Text = ReRecordNarrationText;
 
 				// Display the newly captured text immediately, as if the user tapped the photo.
-				await ShowTranscriptForCurrentPhotoAsync();
+				await ShowTranscriptForCurrentPhotoAsync().ConfigureAwait(true);
 			}
 			catch (Exception ex)
 			{
-				await DisplayAlertAsync(Error, $"Failed to save recording: {ex.Message}", "OK");
+				await DisplayAlertAsync(Error, $"Failed to save recording: {ex.Message}", "OK").ConfigureAwait(true);
 				StatusLabel.Text = "Failed to save recording";
 			}
 
-			UpdateControlStates();
+			finally
+			{
+				_isSaving = false;
+				UpdateControlStates();
+			}
 		}
 
 		private async void OnPlayClicked(object sender, EventArgs e)
 		{
-			if (_narrationService.IsRecording)
+			if (_isSaving || _isSlideshowMode || _narrationService.IsRecording)
 			{
 				return;
 			}
@@ -524,7 +650,7 @@ namespace SummerVacation
 
 			try
 			{
-				await _narrationService.PlayAsync(_photoLibrary.GetNarrationPath());
+				await _narrationService.PlayAsync(_photoLibrary.GetNarrationPath()).ConfigureAwait(true);
 				PlayButton.Text = "Stop P̲layback";
 				StatusLabel.Text = "Playing narration...";
 			}
@@ -534,7 +660,7 @@ namespace SummerVacation
 			}
 			catch (Exception ex)
 			{
-				await DisplayAlertAsync(Error, $"Failed to play audio: {ex.Message}", "OK");
+				await DisplayAlertAsync(Error, $"Failed to play audio: {ex.Message}", "OK").ConfigureAwait(true);
 				StatusLabel.Text = "Playback failed!";
 			}
 
@@ -553,6 +679,11 @@ namespace SummerVacation
 
 		private void OnAutoRenameLabelTapped(object? sender, Microsoft.Maui.Controls.TappedEventArgs e)
 		{
+			if (_isSaving || _isSlideshowMode)
+			{
+				return;
+			}
+
 			AutoRenameCheckBox.IsChecked = !AutoRenameCheckBox.IsChecked;
 		}
 
@@ -560,9 +691,13 @@ namespace SummerVacation
 		/// If the auto-rename checkbox is checked, renames the current photo file (and keeps the narration
 		/// file and transcript entry in sync) using the first 10 words of <paramref name="narrationText"/>
 		/// </summary>
-		private async Task RenamePhotoFromNarrationIfRequestedAsync(string? narrationText)
+		private async Task RenamePhotoFromNarrationIfRequestedAsync(
+			string? narrationText,
+			string? photoPath,
+			string transcriptPath,
+			bool renameRequested)
 		{
-			if (!AutoRenameCheckBox.IsChecked || string.IsNullOrWhiteSpace(narrationText))
+			if (!renameRequested || photoPath is null || string.IsNullOrWhiteSpace(narrationText))
 			{
 				return;
 			}
@@ -573,7 +708,7 @@ namespace SummerVacation
 				return;
 			}
 
-			var renameResult = _photoLibrary.RenameCurrentPhoto(newBaseName);
+			var renameResult = _photoLibrary.RenamePhoto(photoPath, newBaseName);
 			if (renameResult is null)
 			{
 				return;
@@ -582,18 +717,22 @@ namespace SummerVacation
 			try
 			{
 				await _speechToTextService.RenamePhotoInTranscriptAsync(
-					_photoLibrary.GetTranscriptPath(),
+					transcriptPath,
 					renameResult.Value.OldFileName,
-					renameResult.Value.NewFileName);
+					renameResult.Value.NewFileName).ConfigureAwait(true);
 			}
 			catch (Exception ex)
 			{
 				System.Diagnostics.Debug.WriteLine($"Failed to update transcript entry after rename: {ex.Message}");
 			}
 
-			_currentFileName = renameResult.Value.NewFileName;
-			PhotoDisplay.Source = ImageSource.FromFile(_photoLibrary.CurrentPhotoPath);
-			StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {_currentFileName}";
+			var renamedPhotoPath = Path.Combine(Path.GetDirectoryName(photoPath)!, renameResult.Value.NewFileName);
+			if (IsCurrentPhoto(renamedPhotoPath))
+			{
+				_currentFileName = renameResult.Value.NewFileName;
+				PhotoDisplay.Source = ImageSource.FromFile(renamedPhotoPath);
+				StatusLabel.Text = $"Photo {_photoLibrary.CurrentPhotoIndex + 1} of {_photoLibrary.PhotoCount}: {_currentFileName}";
+			}
 		}
 
 		private async void OnPhotoTapped(object? sender, Microsoft.Maui.Controls.TappedEventArgs e)
@@ -604,7 +743,7 @@ namespace SummerVacation
 		private void OnTranscriptOverlayTapped(object? sender, Microsoft.Maui.Controls.TappedEventArgs e)
 		{
 			// Ignore taps that landed on the Editor or the Done button; those have their own handlers.
-			if (TranscriptEditor.IsVisible)
+			if (_isSaving || _isSlideshowMode || _narrationService.IsRecording || TranscriptEditor.IsVisible)
 			{
 				return;
 			}
@@ -620,37 +759,52 @@ namespace SummerVacation
 
 		private async void OnTranscriptEditorCompleted(object? sender, EventArgs e)
 		{
-			// Pressing Enter/Return in the Entry saves the transcript and switches back to display mode, same as clicking the Done button.
-			await SaveTranscriptEditAsync();
-		}
-
-		private async Task SaveTranscriptEditAsync()
-		{
-			string editedText = TranscriptEditor.Text ?? string.Empty;
-
-			// Switch back to read-only display mode immediately for responsiveness.
-			TranscriptLabel.Text = editedText;
-			TranscriptLabel.IsVisible = true;
-			TranscriptEditor.IsVisible = false;
-			TranscriptDoneButton.IsVisible = false;
-			TranscriptOverlay.IsVisible = !string.IsNullOrWhiteSpace(editedText) && ShowTranscriptOverlay;
-
-			if (string.IsNullOrWhiteSpace(_currentFileName))
+			if (_isSaving || _isSlideshowMode || _narrationService.IsRecording)
 			{
 				return;
 			}
 
+			// Pressing Enter/Return in the Entry saves the transcript and switches back to display mode, same as clicking the Done button.
+			await SaveTranscriptEditAsync().ConfigureAwait(true);
+		}
+
+		private async Task SaveTranscriptEditAsync()
+		{
+			if (_isSaving || _isSlideshowMode || _narrationService.IsRecording)
+			{
+				return;
+			}
+
+			string editedText = TranscriptEditor.Text ?? string.Empty;
+			var photoPath = _photoLibrary.CurrentPhotoPath;
+			var photoFileName = _currentFileName;
+			var transcriptPath = _photoLibrary.GetTranscriptPath();
+			var photoFileNames = _photoLibrary.GetAllPhotoFileNames();
+			bool autoRename = AutoRenameCheckBox.IsChecked;
+
+			// Switch back to read-only display mode immediately for responsiveness.
+			CloseTranscriptEditor();
+			TranscriptLabel.Text = editedText;
+			TranscriptOverlay.IsVisible = !string.IsNullOrWhiteSpace(editedText) && ShowTranscriptOverlay;
+
+			if (photoPath is null || string.IsNullOrWhiteSpace(photoFileName))
+			{
+				return;
+			}
+
+			_isSaving = true;
+			UpdateControlStates();
 			try
 			{
 				await _speechToTextService.SaveTranscriptAsync(
-					_photoLibrary.GetTranscriptPath(),
-					_currentFileName,
+					transcriptPath,
+					photoFileName,
 					editedText,
-					_photoLibrary.GetAllPhotoFileNames());
+					photoFileNames).ConfigureAwait(true);
 
 				try
 				{
-					await _photoCommentService.EmbedCommentAsync(_photoLibrary.CurrentPhotoPath, editedText);
+					await _photoCommentService.EmbedCommentAsync(photoPath, editedText).ConfigureAwait(true);
 				}
 				catch (Exception ex)
 				{
@@ -658,14 +812,19 @@ namespace SummerVacation
 					System.Diagnostics.Debug.WriteLine($"Failed to embed comment into photo: {ex.Message}");
 				}
 
-				await RenamePhotoFromNarrationIfRequestedAsync(editedText);
+				await RenamePhotoFromNarrationIfRequestedAsync(editedText, photoPath, transcriptPath, autoRename).ConfigureAwait(true);
 
 				StatusLabel.Text = "Transcript updated";
 			}
 			catch (Exception ex)
 			{
-				await DisplayAlertAsync(Error, $"Failed to save transcript: {ex.Message}", "OK");
+				await DisplayAlertAsync(Error, $"Failed to save transcript: {ex.Message}", "OK").ConfigureAwait(true);
 				StatusLabel.Text = "Failed to save transcript";
+			}
+			finally
+			{
+				_isSaving = false;
+				UpdateControlStates();
 			}
 		}
 
@@ -679,43 +838,40 @@ namespace SummerVacation
 			var navColor = (Color)Application.Current!.Resources["NavigationBarColor"];
 			var disabledColor = Colors.Gray;
 
-			bool prevEnabled = hasPhotos && _photoLibrary.CurrentPhotoIndex > 0 && (_isSlideshowMode || (!isRecording && !isPlaying));
+			bool prevEnabled = hasPhotos && !_isSaving && _photoLibrary.CurrentPhotoIndex > 0 && (_isSlideshowMode || (!isRecording && !isPlaying));
 			PreviousButton.IsEnabled = prevEnabled;
 			PreviousButton.BackgroundColor = prevEnabled ? navColor : disabledColor;
 
-			bool nextEnabled = hasPhotos && _photoLibrary.CurrentPhotoIndex < _photoLibrary.PhotoCount - 1 && (_isSlideshowMode || (!isRecording && !isPlaying));
+			bool nextEnabled = hasPhotos && !_isSaving && _photoLibrary.CurrentPhotoIndex < _photoLibrary.PhotoCount - 1 && (_isSlideshowMode || (!isRecording && !isPlaying));
 			NextButton.IsEnabled = nextEnabled;
 			NextButton.BackgroundColor = nextEnabled ? navColor : disabledColor;
 
-			SelectDirectoryButton.IsEnabled = !_isSlideshowMode;
+			SelectDirectoryButton.IsEnabled = !_isSlideshowMode && !_isSaving && !isRecording;
 			SelectDirectoryButton.BackgroundColor = SelectDirectoryButton.IsEnabled ? navColor : disabledColor;
 
-			RecordButton.IsEnabled = hasPhotos && !isPlaying;
+			RecordButton.IsEnabled = hasPhotos && !isPlaying && !_isSaving && !_isSlideshowMode;
 			if (!isRecording)
 			{
 				RecordButton.BackgroundColor = hasNarration ? Colors.Red : Colors.Green;
 				RecordButton.Text = hasNarration ? ReRecordNarrationText : RecordNarrationText;
 			}
 
-			if (_isSlideshowMode)
+			if (_isSlideshowMode || _isSaving)
 			{
 				RecordButton.IsEnabled = false;
 				RecordButton.BackgroundColor = disabledColor;
 			}
 
-			bool playEnabled = hasPhotos && !isRecording && hasNarration;
+			bool playEnabled = hasPhotos && !isRecording && hasNarration && !_isSaving && !_isSlideshowMode;
 			PlayButton.IsEnabled = playEnabled;
 			PlayButton.BackgroundColor = playEnabled ? navColor : disabledColor;
 
-			if (_isSlideshowMode)
-			{
-				PlayButton.IsEnabled = false;
-				PlayButton.BackgroundColor = disabledColor;
-			}
-
-			SlideshowButton.IsEnabled = hasPhotos && !_isSlideshowMode && !isRecording;
+			SlideshowButton.IsEnabled = hasPhotos && !_isSlideshowMode && !isRecording && !_isSaving;
 			SlideshowButton.BackgroundColor = SlideshowButton.IsEnabled ? navColor : disabledColor;
-			AutoRenameCheckBox.IsEnabled = !_isSlideshowMode;
+			AutoRenameControlGroup.IsEnabled = !_isSlideshowMode && !_isSaving;
+			AutoRenameCheckBox.IsEnabled = !_isSlideshowMode && !_isSaving;
+			TranscriptEditor.IsReadOnly = _isSlideshowMode || _isSaving;
+			TranscriptDoneButton.IsEnabled = !_isSlideshowMode && !_isSaving;
 		}
 
 		// Windows Hotkeys Wiring: Left Arrow = Previous, Right Arrow = Next, R = Record, P = Play, S = Select Directory, Escape = Exit Slideshow/Toggle Transcript Overlay
