@@ -110,7 +110,19 @@ public sealed class PhotoLibrary
 	public (string OldFileName, string NewFileName)? RenameCurrentPhoto(string newBaseName)
 	{
 		var photoPath = CurrentPhotoPath;
-		if (photoPath is null || string.IsNullOrWhiteSpace(newBaseName) || !CanWriteToPhotoDirectory)
+		return photoPath is null ? null : RenamePhoto(photoPath, newBaseName);
+	}
+
+	/// <summary>
+	/// Renames the specified photo and its narration file, if any, while preserving the original extension.
+	/// </summary>
+	/// <param name="photoPath">The full path of a photo in the loaded library.</param>
+	/// <param name="newBaseName">The desired file name without an extension.</param>
+	/// <returns>The old and new file names, or <see langword="null"/> when the photo cannot be renamed.</returns>
+	public (string OldFileName, string NewFileName)? RenamePhoto(string photoPath, string newBaseName)
+	{
+		int photoIndex = _photoFiles.FindIndex(path => string.Equals(path, photoPath, StringComparison.Ordinal));
+		if (photoIndex < 0 || string.IsNullOrWhiteSpace(newBaseName) || !CanWriteToPhotoDirectory)
 		{
 			return null;
 		}
@@ -137,7 +149,7 @@ public sealed class PhotoLibrary
 		}
 
 		File.Move(photoPath, newPath);
-		_photoFiles[CurrentPhotoIndex] = newPath;
+		_photoFiles[photoIndex] = newPath;
 
 		// Keep the narration file matched with its photo by renaming it too, if one exists.
 		var oldNarrationPath = Path.Combine(directory, Path.ChangeExtension(oldFileName, ".mp3"));
