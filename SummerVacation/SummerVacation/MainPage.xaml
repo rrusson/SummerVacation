@@ -115,8 +115,8 @@
                         HorizontalOptions="Center" />
 
 				<Button x:Name="SlideshowButton"
-                        Text="Slideshow"
-                        SemanticProperties.Hint="Play a slideshow of all photos in the selected directory"
+                        Text="Slideshow̲"
+                        SemanticProperties.Hint="Play a slideshow of all photos in the selected directory. Keyboard shortcut: W"
                         Clicked="OnSlideshowClicked"
                         HorizontalOptions="Center"
                         BackgroundColor="{StaticResource NavigationBarColor}"

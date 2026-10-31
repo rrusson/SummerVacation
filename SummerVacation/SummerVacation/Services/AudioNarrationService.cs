@@ -100,6 +100,100 @@ public sealed class AudioNarrationService : IDisposable
 	}
 
 	/// <summary>
+	/// Stops the active recording without saving it, discarding the captured audio.
+	/// Use this when the user chooses not to replace an existing narration.
+	/// </summary>
+	public async Task DiscardRecordingAsync()
+	{
+		if (_audioRecorder is null)
+		{
+			IsRecording = false;
+			return;
+		}
+
+		try
+		{
+			await _audioRecorder.StopAsync().ConfigureAwait(true);
+		}
+		finally
+		{
+			_audioRecorder = null;
+			IsRecording = false;
+		}
+	}
+
+	/// <summary>
+	/// Plays the narration at <paramref name="narrationPath"/>.
+	/// Throws <see cref="FileNotFoundException"/> if the file does not exist.
+	/// </summary>
+	public async Task PlayAsync(string narrationPath)
+	{
+		await PlayWithDurationAsync(narrationPath).ConfigureAwait(true);
+	}
+
+	/// <summary>
+	/// Plays the narration at <paramref name="narrationPath"/> and returns its duration when available.
+	/// Throws <see cref="FileNotFoundException"/> if the file does not exist.
+	/// </summary>
+	/// <param name="narrationPath">The audio file to play.</param>
+	/// <param name="cancellationToken">A token that cancels playback setup before audio starts.</param>
+	public async Task<TimeSpan?> PlayWithDurationAsync(string narrationPath, CancellationToken cancellationToken = default)
+	{
+		cancellationToken.ThrowIfCancellationRequested();
+		StopPlayback();
+
+		if (!File.Exists(narrationPath))
+		{
+			throw new FileNotFoundException("Narration file not found.", narrationPath);
+		}
+
+		// Read into memory so the file is not locked during playback.
+		var audioBytes = await File.ReadAllBytesAsync(narrationPath, cancellationToken).ConfigureAwait(true);
+		cancellationToken.ThrowIfCancellationRequested();
+		var player = _audioManager.CreatePlayer(new MemoryStream(audioBytes));
+		_audioPlayer = player;
+		player.PlaybackEnded += OnPlayerPlaybackEnded;
+		player.Play();
+
+		// The native player may not report Duration until it's finished preparing. Make a best effort to get duration.
+		var duration = await WaitForDurationAsync(player, cancellationToken).ConfigureAwait(true);
+		return duration ?? TryGetWavDuration(audioBytes);
+	}
+
+	/// <summary>Stops playback and releases the player.</summary>
+	public void StopPlayback()
+	{
+		if (_audioPlayer is null)
+		{
+			return;
+		}
+
+		var player = _audioPlayer;
+		_audioPlayer = null;
+
+		if (player.IsPlaying)
+		{
+			player.Stop();
+		}
+
+		player.PlaybackEnded -= OnPlayerPlaybackEnded;
+		player.Dispose();
+	}
+
+	public void Dispose()
+	{
+		StopPlayback();
+		_audioRecorder = null;
+	}
+
+
+	private void OnPlayerPlaybackEnded(object? sender, EventArgs e)
+	{
+		StopPlayback();
+		PlaybackEnded?.Invoke(this, EventArgs.Empty);
+	}
+
+	/// <summary>
 	/// Boosts quiet 16-bit PCM WAV audio in place so its peak reaches about 90% of full scale.
 	/// Other formats are left untouched.
 	/// </summary>
@@ -174,95 +268,72 @@ public sealed class AudioNarrationService : IDisposable
 		}
 	}
 
-	/// <summary>
-	/// Stops the active recording without saving it, discarding the captured audio.
-	/// Use this when the user chooses not to replace an existing narration.
-	/// </summary>
-	public async Task DiscardRecordingAsync()
+	private static async Task<TimeSpan?> WaitForDurationAsync(IAudioPlayer player, CancellationToken cancellationToken)
 	{
-		if (_audioRecorder is null)
+		const int MaxAttempts = 20;
+		const int DelayMilliseconds = 25;
+
+		for (var attempt = 0; attempt < MaxAttempts; attempt++)
 		{
-			IsRecording = false;
-			return;
+			try
+			{
+				if (player.Duration > 0)
+				{
+					return TimeSpan.FromSeconds(player.Duration);
+				}
+			}
+			catch (ObjectDisposedException)
+			{
+				return null;
+			}
+
+			try
+			{
+				await Task.Delay(DelayMilliseconds, cancellationToken).ConfigureAwait(true);
+			}
+			catch (OperationCanceledException)
+			{
+				return null;
+			}
 		}
 
-		try
-		{
-			await _audioRecorder.StopAsync().ConfigureAwait(true);
-		}
-		finally
-		{
-			_audioRecorder = null;
-			IsRecording = false;
-		}
+		return null;
 	}
 
-	/// <summary>
-	/// Plays the narration at <paramref name="narrationPath"/>.
-	/// Throws <see cref="FileNotFoundException"/> if the file does not exist.
-	/// </summary>
-	public async Task PlayAsync(string narrationPath)
+	private static TimeSpan? TryGetWavDuration(byte[] wav)
 	{
-		await PlayWithDurationAsync(narrationPath).ConfigureAwait(true);
-	}
-
-	/// <summary>
-	/// Plays the narration at <paramref name="narrationPath"/> and returns its duration when available.
-	/// Throws <see cref="FileNotFoundException"/> if the file does not exist.
-	/// </summary>
-	/// <param name="narrationPath">The audio file to play.</param>
-	/// <param name="cancellationToken">A token that cancels playback setup before audio starts.</param>
-	public async Task<TimeSpan?> PlayWithDurationAsync(string narrationPath, CancellationToken cancellationToken = default)
-	{
-		cancellationToken.ThrowIfCancellationRequested();
-		StopPlayback();
-
-		if (!File.Exists(narrationPath))
+		if (wav.Length < 12 || wav[0] != 'R' || wav[1] != 'I' || wav[2] != 'F' || wav[3] != 'F')
 		{
-			throw new FileNotFoundException("Narration file not found.", narrationPath);
+			return null;
 		}
 
-		// Read into memory so the file is not locked during playback.
-		var audioBytes = await File.ReadAllBytesAsync(narrationPath, cancellationToken).ConfigureAwait(true);
-		cancellationToken.ThrowIfCancellationRequested();
-		_audioPlayer = _audioManager.CreatePlayer(new MemoryStream(audioBytes));
-		_audioPlayer.PlaybackEnded += OnPlayerPlaybackEnded;
-		var duration = _audioPlayer.Duration > 0
-			? TimeSpan.FromSeconds(_audioPlayer.Duration)
-			: (TimeSpan?)null;
-		_audioPlayer.Play();
-		return duration;
-	}
-
-	/// <summary>Stops playback and releases the player.</summary>
-	public void StopPlayback()
-	{
-		if (_audioPlayer is null)
+		var byteRate = 0;
+		var position = 12;
+		while (position + 8 <= wav.Length)
 		{
-			return;
+			var chunkId = System.Text.Encoding.ASCII.GetString(wav, position, 4);
+			var chunkSize = BitConverter.ToInt32(wav, position + 4);
+			var dataStart = position + 8;
+
+			if (chunkId == "fmt " && dataStart + 12 <= wav.Length)
+			{
+				byteRate = BitConverter.ToInt32(wav, dataStart + 8);
+			}
+			else if (chunkId == "data")
+			{
+				var available = wav.Length - dataStart;
+				var length = chunkSize < 0 || chunkSize > available ? available : chunkSize;
+				return byteRate > 0 ? TimeSpan.FromSeconds((double)length / byteRate) : null;
+			}
+
+			if (chunkSize < 0)
+			{
+				return null;
+			}
+
+			position = dataStart + chunkSize + (chunkSize & 1);
 		}
 
-		var player = _audioPlayer;
-		_audioPlayer = null;
-
-		if (player.IsPlaying)
-		{
-			player.Stop();
-		}
-
-		player.PlaybackEnded -= OnPlayerPlaybackEnded;
-		player.Dispose();
-	}
-
-	private void OnPlayerPlaybackEnded(object? sender, EventArgs e)
-	{
-		StopPlayback();
-		PlaybackEnded?.Invoke(this, EventArgs.Empty);
-	}
-
-	public void Dispose()
-	{
-		StopPlayback();
-		_audioRecorder = null;
+		return null;
 	}
 }

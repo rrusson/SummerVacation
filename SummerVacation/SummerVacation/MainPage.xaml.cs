@@ -15,7 +15,7 @@ namespace SummerVacation
 		private const string ReRecordNarrationText = "R̲e-record";
 		private const string PlayNarrationText = "P̲lay Narration";
 		private static readonly TimeSpan MinimumSlideshowDuration = TimeSpan.FromSeconds(5);
-		private static readonly TimeSpan SlideshowNarrationPadding = TimeSpan.FromSeconds(1);
+		private static readonly TimeSpan SlideshowNarrationPadding = TimeSpan.FromMilliseconds(500);
 
 		private readonly PhotoLibrary _photoLibrary;
 		private readonly AudioNarrationService _narrationService;
@@ -300,7 +300,13 @@ namespace SummerVacation
 
 		private async void OnSlideshowClicked(object sender, EventArgs e)
 		{
-			if (_isSlideshowMode || _isSaving || _narrationService.IsRecording || !_photoLibrary.HasPhotos)
+			if (_isSlideshowMode)
+			{
+				await EndSlideshowModeAsync(resetToFirstPhoto: false).ConfigureAwait(true);
+				return;
+			}
+
+			if (_isSaving || _narrationService.IsRecording || !_photoLibrary.HasPhotos)
 			{
 				return;
 			}
@@ -866,7 +872,9 @@ namespace SummerVacation
 			PlayButton.IsEnabled = playEnabled;
 			PlayButton.BackgroundColor = playEnabled ? navColor : disabledColor;
 
-			SlideshowButton.IsEnabled = hasPhotos && !_isSlideshowMode && !isRecording && !_isSaving;
+			// Stays enabled during the slideshow so it keeps keyboard focus and can stop it.
+			SlideshowButton.IsEnabled = _isSlideshowMode || (hasPhotos && !isRecording && !_isSaving);
+			SlideshowButton.Text = _isSlideshowMode ? "Stop Slideshow̲" : "Slideshow̲";
 			SlideshowButton.BackgroundColor = SlideshowButton.IsEnabled ? navColor : disabledColor;
 			AutoRenameControlGroup.IsEnabled = !_isSlideshowMode && !_isSaving;
 			AutoRenameCheckBox.IsEnabled = !_isSlideshowMode && !_isSaving;
@@ -874,13 +882,17 @@ namespace SummerVacation
 			TranscriptDoneButton.IsEnabled = !_isSlideshowMode && !_isSaving;
 		}
 
-		// Windows Hotkeys Wiring: Left Arrow = Previous, Right Arrow = Next, R = Record, P = Play, S = Select Directory, Escape = Exit Slideshow/Toggle Transcript Overlay
+		// Windows Hotkeys Wiring: Left Arrow = Previous, Right Arrow = Next, R = Record, P = Play, S = Select Directory, W = Start/Stop Slideshow, Escape = Exit Slideshow/Toggle Transcript Overlay
 #if WINDOWS
 		private void OnPageLoaded(object? sender, EventArgs e)
 		{
 			if (Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement frameworkElement)
 			{
-				frameworkElement.KeyDown += OnWindowsKeyDown;
+				// handledEventsToo so focused buttons can't swallow Escape/hotkeys.
+				frameworkElement.AddHandler(
+					Microsoft.UI.Xaml.UIElement.KeyDownEvent,
+					new KeyEventHandler(OnWindowsKeyDown),
+					true);
 				frameworkElement.IsTabStop = true;
 				frameworkElement.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
 			}
@@ -890,18 +902,13 @@ namespace SummerVacation
 		{
 			if (Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement frameworkElement)
 			{
-				frameworkElement.KeyDown -= OnWindowsKeyDown;
+				frameworkElement.RemoveHandler(Microsoft.UI.Xaml.UIElement.KeyDownEvent, new KeyEventHandler(OnWindowsKeyDown));
 			}
 		}
 
 		private void OnWindowsKeyDown(object sender, KeyRoutedEventArgs e)
 		{
-			if (e.Handled)
-			{
-				return;
-			}
-
-			// Don't intercept keystrokes as app hotkeys while the user is typing in the transcript editor.
+			// Don't intercept
 			if (TranscriptEditor.IsFocused)
 			{
 				return;
@@ -927,6 +934,10 @@ namespace SummerVacation
 					break;
 				case VirtualKey.S when SelectDirectoryButton.IsEnabled:
 					OnSelectDirectoryClicked(this, EventArgs.Empty);
+					e.Handled = true;
+					break;
+				case VirtualKey.W when SlideshowButton.IsEnabled:
+					OnSlideshowClicked(this, EventArgs.Empty);
 					e.Handled = true;
 					break;
 				case VirtualKey.Escape:
