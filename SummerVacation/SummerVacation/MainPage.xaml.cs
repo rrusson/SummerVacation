@@ -325,6 +325,7 @@ namespace SummerVacation
 				return;
 			}
 
+			UpdateControlStates();
 			CancelSlideshowTimer();
 			var transition = new CancellationTokenSource();
 			_slideshowCancellationTokenSource = transition;
@@ -657,8 +658,11 @@ namespace SummerVacation
 			try
 			{
 				await _narrationService.PlayAsync(_photoLibrary.GetNarrationPath()).ConfigureAwait(true);
-				PlayButton.Text = "Stop P̲layback";
-				StatusLabel.Text = "Playing narration...";
+				if (_narrationService.IsPlaying)
+				{
+					PlayButton.Text = "Stop P̲layback";
+					StatusLabel.Text = "Playing narration...";
+				}
 			}
 			catch (FileNotFoundException)
 			{
